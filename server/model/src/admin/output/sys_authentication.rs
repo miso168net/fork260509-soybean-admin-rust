@@ -18,6 +18,7 @@ pub struct UserInfoOutput {
     #[serde(rename = "userName")]
     pub user_name: String,
     pub roles: Vec<String>,
+    pub buttons: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
