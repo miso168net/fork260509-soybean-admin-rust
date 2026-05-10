@@ -3,6 +3,7 @@ use serde::Serialize;
 use super::MenuRoute;
 
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthOutput {
     pub token: String,
     // 为了复用soybean-admin-nestjs前端,暂时弃用
