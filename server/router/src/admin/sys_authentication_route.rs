@@ -10,7 +10,12 @@ pub struct SysAuthenticationRouter;
 
 impl SysAuthenticationRouter {
     pub async fn init_authentication_router() -> Router {
-        let router = Router::new().route("/login", post(SysAuthenticationApi::login_handler));
+        let router = Router::new()
+            .route("/login", post(SysAuthenticationApi::login_handler))
+            .route(
+                "/refreshToken",
+                post(SysAuthenticationApi::refresh_token_handler),
+            );
         Router::new().nest("/auth", router)
     }
 

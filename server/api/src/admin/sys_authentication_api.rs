@@ -9,8 +9,8 @@ use server_core::web::{
 use server_service::{
     admin::{
         dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AuthOutput,
-        LoginInput, SysAuthService, SysAuthorizationService, TAuthService, TAuthorizationService,
-        UserInfoOutput, UserRoute,
+        LoginInput, RefreshTokenInput, SysAuthService, SysAuthorizationService, TAuthService,
+        TAuthorizationService, UserInfoOutput, UserRoute,
     },
     Audience,
 };
@@ -53,6 +53,16 @@ impl SysAuthenticationApi {
             .pwd_login(input, login_context)
             .await
             .map(Res::new_data)
+    }
+
+    pub async fn refresh_token_handler(
+        Extension(_service): Extension<Arc<SysAuthService>>,
+        ValidatedForm(_input): ValidatedForm<RefreshTokenInput>,
+    ) -> Result<Res<AuthOutput>, AppError> {
+        Err(AppError {
+            code: 501,
+            message: "Not implemented".into(),
+        })
     }
 
     pub async fn get_user_info(
