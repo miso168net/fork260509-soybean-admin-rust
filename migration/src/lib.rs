@@ -22,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(schemas::m20241023_091204_create_sys_tokens::Migration),
             Box::new(schemas::m20241023_091210_create_sys_user_role::Migration),
             Box::new(schemas::m20241023_091159_create_sys_role_menu::Migration),
+            Box::new(schemas::m20260511_070000_add_expires_at_to_sys_tokens::Migration),
             // 数据迁移
             Box::new(datas::m20241023_102950_insert_sys_domain::Migration),
             Box::new(datas::m20241024_033005_insert_sys_user::Migration),

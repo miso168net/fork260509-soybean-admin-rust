@@ -34,6 +34,7 @@ pub struct Model {
     pub created_at: DateTime,
     #[sea_orm(column_type = "Text")]
     pub created_by: String,
+    pub expires_at: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
