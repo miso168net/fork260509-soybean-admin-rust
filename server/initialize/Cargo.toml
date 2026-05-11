@@ -37,7 +37,7 @@ aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 
 [dev-dependencies]
-axum-test-helpers = { workspace = true }            # 不兼容axum0.8.x
+# axum-test-helpers 0.8 不兼容 axum 0.8.x；测试已注释，dev-dep 一并移除（R3 fix）
 tower = { workspace = true, features = ["full"] }
 futures = { workspace = true }
 http = { workspace = true }

@@ -29,4 +29,4 @@ runtime-async-std = ["casbin/runtime-async-std", "async-std/std"]
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
 async-std = { workspace = true, features = ["attributes"] }
-axum-test-helpers = { workspace = true }
+axum-test = { workspace = true }
