@@ -19,7 +19,7 @@ pub struct Model {
     pub username: String,
     #[sea_orm(column_type = "Text")]
     pub domain: String,
-    pub login_time: DateTime,
+    pub login_time: DateTimeWithTimeZone,
     #[sea_orm(column_type = "Text")]
     pub ip: String,
     pub port: Option<i32>,
@@ -31,10 +31,10 @@ pub struct Model {
     pub request_id: String,
     #[sea_orm(column_type = "Text")]
     pub r#type: String,
-    pub created_at: DateTime,
+    pub created_at: DateTimeWithTimeZone,
     #[sea_orm(column_type = "Text")]
     pub created_by: String,
-    pub expires_at: DateTime,
+    pub expires_at: DateTimeWithTimeZone,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

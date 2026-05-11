@@ -1,4 +1,4 @@
-use chrono::{Duration, Local};
+use chrono::{Duration, Utc};
 use server_config::JwtConfig;
 use server_core::web::error::AppError;
 use server_global::global;
@@ -48,7 +48,7 @@ impl AuthEventHandler {
             code: 500,
             message: "JwtConfig not initialized".to_string(),
         })?;
-        let expires_at = Local::now().naive_local()
+        let expires_at = Utc::now().fixed_offset()
             + Duration::seconds(jwt_config.refresh_token_expire);
 
         // 处理访问令牌

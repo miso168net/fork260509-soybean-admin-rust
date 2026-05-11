@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use sea_orm::prelude::DateTimeWithTimeZone;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use server_constant::definition::consts::TokenStatus;
 use server_core::web::error::AppError;
@@ -17,12 +17,12 @@ pub struct AccessTokenEvent {
     pub user_agent: String,
     pub request_id: String,
     pub login_type: String,
-    pub expires_at: NaiveDateTime,
+    pub expires_at: DateTimeWithTimeZone,
 }
 
 impl AccessTokenEvent {
     pub async fn handle<C: ConnectionTrait>(self, db: &C) -> Result<(), AppError> {
-        let now = chrono::Local::now().naive_local();
+        let now = chrono::Utc::now().fixed_offset();
 
         SysTokensActiveModel {
             id: Set(Ulid::new().to_string()),

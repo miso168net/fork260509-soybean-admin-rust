@@ -12,3 +12,4 @@ pub mod m20241023_091159_create_sys_role_menu;
 pub mod m20241023_091204_create_sys_tokens;
 pub mod m20241023_091210_create_sys_user_role;
 pub mod m20260511_070000_add_expires_at_to_sys_tokens;
+pub mod m20260512_000000_alter_sys_tokens_timestamptz;
