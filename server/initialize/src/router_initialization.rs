@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{body::Body, http::StatusCode, response::IntoResponse, Extension, Router};
+use axum::{body::Body, http::StatusCode, response::IntoResponse, routing::get, Extension, Router};
 use axum_casbin::CasbinAxumLayer;
 use chrono::Local;
 use http::Request;
@@ -312,6 +312,11 @@ pub async fn initialize_admin_router() -> Router {
         false,
         Some(complex_validation)
     );
+
+    // 7-I1 fix：/health endpoint（docker HEALTHCHECK + LB readiness probe）
+    // 不走 add_route! 巨集 → 不寫入 sys_endpoint 表（health 不需 casbin 授權管控）
+    // 不掛任何 auth / casbin middleware（public probe）
+    app = app.route("/health", get(|| async { "ok" }));
 
     app = app.fallback(handler_404);
 
