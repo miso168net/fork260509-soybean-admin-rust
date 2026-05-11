@@ -177,7 +177,7 @@ impl TreeBuilder {
     /// 递归构建树结构
     #[inline]
     fn attach_children<T, Id, F1, F2>(
-        nodes: &mut Vec<T>,
+        nodes: &mut [T],
         child_map: &mut HashMap<Id, Vec<T>>,
         id_fn: &F1,
         set_children_fn: &mut F2,

@@ -402,7 +402,7 @@ mod tests {
             .remove_filtered_policy("", "g", 0, to_owned(vec!["carol"]),)
             .await
             .unwrap());
-        assert_eq!(vec![String::new(); 0], e.get_roles_for_user("carol", None));
+        assert_eq!(Vec::<String>::new(), e.get_roles_for_user("carol", None));
 
         // GitHub issue: https://github.com/casbin-rs/sqlx-adapter/pull/90
         // add policies:

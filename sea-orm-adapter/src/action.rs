@@ -43,9 +43,9 @@ impl<'a> RuleWithType<'a> {
     }
 }
 
-pub(crate) async fn remove_policy<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
-    rule: RuleWithType<'rule>,
+pub(crate) async fn remove_policy<C: ConnectionTrait>(
+    conn: &C,
+    rule: RuleWithType<'_>,
 ) -> Result<bool> {
     let mut delete = Entity::delete_many().filter(Column::Ptype.eq(rule.ptype));
     for (column, value) in COLUMNS.iter().zip(rule.rule.values.iter()) {
@@ -58,9 +58,9 @@ pub(crate) async fn remove_policy<'conn, 'rule, C: ConnectionTrait>(
         .map_err(|err| CasbinError::from(AdapterError(Box::new(err))))
 }
 
-pub(crate) async fn remove_policies<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
-    rules: Vec<RuleWithType<'rule>>,
+pub(crate) async fn remove_policies<C: ConnectionTrait>(
+    conn: &C,
+    rules: Vec<RuleWithType<'_>>,
 ) -> Result<bool> {
     for rule in rules {
         remove_policy(conn, rule).await?;
@@ -68,8 +68,8 @@ pub(crate) async fn remove_policies<'conn, 'rule, C: ConnectionTrait>(
     Ok(true)
 }
 
-pub(crate) async fn remove_filtered_policy<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
+pub(crate) async fn remove_filtered_policy<'rule, C: ConnectionTrait>(
+    conn: &C,
     ptype: &'rule str,
     index_of_match_start: usize,
     rule: Rule<'rule>,
@@ -98,9 +98,9 @@ pub(crate) async fn load_policy<C: ConnectionTrait>(conn: &C) -> Result<Vec<enti
         .map_err(|err| CasbinError::from(AdapterError(Box::new(err))))
 }
 
-pub(crate) async fn load_filtered_policy<'conn, 'filter, C: ConnectionTrait>(
-    conn: &'conn C,
-    filter: Filter<'filter>,
+pub(crate) async fn load_filtered_policy<C: ConnectionTrait>(
+    conn: &C,
+    filter: Filter<'_>,
 ) -> Result<Vec<entity::Model>> {
     let g_filter = Rule::from_slice(&filter.g);
     let p_filter = Rule::from_slice(&filter.p);
@@ -126,18 +126,18 @@ fn create_condition_from_rule(prefix: &str, rule: &Rule) -> Condition {
         )
 }
 
-pub(crate) async fn save_policies<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
-    rules: Vec<RuleWithType<'rule>>,
+pub(crate) async fn save_policies<C: ConnectionTrait>(
+    conn: &C,
+    rules: Vec<RuleWithType<'_>>,
 ) -> Result<()> {
     clear_policy(conn).await?;
     add_policies(conn, rules).await?;
     Ok(())
 }
 
-pub(crate) async fn add_policy<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
-    rule: RuleWithType<'rule>,
+pub(crate) async fn add_policy<C: ConnectionTrait>(
+    conn: &C,
+    rule: RuleWithType<'_>,
 ) -> Result<bool> {
     let model = create_active_model(&rule);
     model
@@ -147,9 +147,9 @@ pub(crate) async fn add_policy<'conn, 'rule, C: ConnectionTrait>(
         .map_err(|err| CasbinError::from(AdapterError(Box::new(err))))
 }
 
-pub(crate) async fn add_policies<'conn, 'rule, C: ConnectionTrait>(
-    conn: &'conn C,
-    rules: Vec<RuleWithType<'rule>>,
+pub(crate) async fn add_policies<C: ConnectionTrait>(
+    conn: &C,
+    rules: Vec<RuleWithType<'_>>,
 ) -> Result<bool> {
     let models: Vec<entity::ActiveModel> = rules.iter().map(create_active_model).collect();
     Entity::insert_many(models)
