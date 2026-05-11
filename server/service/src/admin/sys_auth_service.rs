@@ -155,6 +155,15 @@ impl TAuthService for SysAuthService {
         // 1) 先在交易外读取 sys_tokens 旧记录（仅 ACTIVE 且未过期）。
         //    依 spec R8：先取出 user_id 给 get_user_roles（沿用既有 &DatabaseConnection 签名），
         //    再进入交易内重新 SELECT 同一笔做 rotate（并发竞态由 status 唯一过渡保护）。
+        //
+        // NOTE (T009 動態驗證發現): sys_tokens.expires_at 是 TIMESTAMP WITHOUT TIME ZONE，
+        // column type 本身對 TZ 模糊。當外部 SQL（e.g., 維運手動 UPDATE / psql session）
+        // 用 Postgres now() (session TZ Asia/Taipei) 寫入 naive value 時，與 admin-api
+        // 容器內 Local::now() (UTC) 寫入的 naive value 不在同一時間軸 — 比較會 off by 8h、
+        // 誤判 expired token 為有效（或反之）。
+        // 真正修補需把 column 改 timestamptz — 屬 schema-level 變更，out of feature 4 scope。
+        // 正常 admin-api flow（login 寫 expires_at + refresh 讀 expires_at 都走 Local::now()）
+        // TZ-internally consistent，本問題在正常運作不顯現；僅當運維外部 SQL 介入時暴露。
         let old = SysTokens::find()
             .filter(SysTokensColumn::RefreshToken.eq(input.refresh_token.clone()))
             .filter(SysTokensColumn::Status.eq(TokenStatus::Active.to_string()))
