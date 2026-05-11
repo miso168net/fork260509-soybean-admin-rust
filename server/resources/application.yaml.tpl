@@ -1,24 +1,16 @@
 database:
-    url: "postgres://soybean:soybean@123.@pgbouncer:6432/soybean_admin_rust"
-    max_connections: 10
+    url: "${APP_DATABASE_URL}"
+    max_connections: ${APP_DATABASE_MAX_CONNECTIONS:-10}
     min_connections: 1
     connect_timeout: 30
     idle_timeout: 600
 server:
-    host: "0.0.0.0"
-    port: 10001
+    host: "${APP_SERVER_HOST:-0.0.0.0}"
+    port: ${APP_SERVER_PORT:-10001}
 jwt:
-    jwt_secret: "soybean-admin-rust"
-    issuer: "https://github.com/ByteByteBrew/soybean-admin-rust"
-    expire: 7200
+    jwt_secret: "${APP_JWT_JWT_SECRET}"
+    issuer: "${APP_JWT_ISSUER}"
+    expire: ${APP_JWT_EXPIRE:-7200}
 redis:
     mode: single
-    url: "redis://:123456@redis:6379/10"
-# 可选 自行配置
-# mongo:
-#     uri: "mongodb://localhost:27017"
-# s3:
-#     region: "oss-cn-beijing"
-#     access_key_id: "x"
-#     secret_access_key: "x"
-#     endpoint: "https://oss-cn-beijing.aliyuncs.com"
+    url: "${APP_REDIS_URL}"

@@ -54,7 +54,7 @@ ENV TZ=${TZ} \
 # - 安装运行时依赖
 # - 创建低权限用户
 # - 创建必要的目录结构
-RUN apk add --no-cache openssl ca-certificates tzdata && \
+RUN apk add --no-cache openssl ca-certificates tzdata gettext && \
     adduser \
     --disabled-password \
     --gecos "" \
@@ -68,9 +68,11 @@ RUN apk add --no-cache openssl ca-certificates tzdata && \
 
 # 从构建阶段复制应用及配置文件
 COPY --from=build /bin/server /bin/
-COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/application.yaml /app/server/resources/
+COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/application.yaml.tpl /app/server/resources/
 COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/ip2region.xdb /app/server/resources/
 COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/rbac_model.conf /app/server/resources/
+COPY --chown=${APP_USER}:${APP_USER} entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # 设置工作目录和用户
 WORKDIR /app
@@ -78,4 +80,5 @@ USER ${APP_USER}
 EXPOSE ${APP_PORT}
 
 # 启动服务
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/server"]
