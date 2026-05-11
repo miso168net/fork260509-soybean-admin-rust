@@ -1,4 +1,7 @@
+use chrono::{Duration, Local};
+use server_config::JwtConfig;
 use server_core::web::error::AppError;
+use server_global::global;
 
 use crate::{
     admin::events::{access_token_event::AccessTokenEvent, login_log_event::LoginLogEvent},
@@ -40,6 +43,14 @@ impl AuthEventHandler {
 
         login_log_event.handle(&db).await?;
 
+        // 计算 refresh token 到期时间（同 refresh_token 流程，使用 JwtConfig.refresh_token_expire）
+        let jwt_config = global::get_config::<JwtConfig>().await.ok_or_else(|| AppError {
+            code: 500,
+            message: "JwtConfig not initialized".to_string(),
+        })?;
+        let expires_at = Local::now().naive_local()
+            + Duration::seconds(jwt_config.refresh_token_expire);
+
         // 处理访问令牌
         let access_token_event = AccessTokenEvent {
             access_token: event.access_token,
@@ -53,9 +64,10 @@ impl AuthEventHandler {
             user_agent: event.user_agent,
             request_id: event.request_id,
             login_type: event.login_type,
+            expires_at,
         };
 
-        access_token_event.handle(&db).await?;
+        access_token_event.handle(db.as_ref()).await?;
 
         Ok(())
     }

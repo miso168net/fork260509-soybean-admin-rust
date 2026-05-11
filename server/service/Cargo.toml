@@ -6,6 +6,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+server-config = { path = "../config" }
 server-constant = { path = "../constant" }
 server-core = { path = "../core" }
 server-global = { path = "../global" }

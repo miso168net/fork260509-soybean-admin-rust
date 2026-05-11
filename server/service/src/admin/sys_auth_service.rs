@@ -1,11 +1,16 @@
 use std::any::Any;
 
 use async_trait::async_trait;
+use chrono::{Duration, Local};
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
-    RelationTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
 };
-use server_constant::definition::{consts::SystemEvent, Audience};
+use server_config::JwtConfig;
+use server_constant::definition::{
+    consts::{SystemEvent, TokenStatus},
+    Audience,
+};
 use server_core::web::{
     auth::Claims,
     error::AppError,
@@ -14,16 +19,17 @@ use server_core::web::{
 use server_global::global;
 use server_model::admin::{
     entities::{
-        prelude::{SysRole, SysUser},
+        prelude::{SysRole, SysTokens, SysUser},
         sea_orm_active_enums::Status,
         sys_domain::Column as SysDomainColumn,
         sys_menu::{Column as SysMenuColumn, Entity as SysMenuEntity, Model as SysMenuModel},
         sys_role::{Column as SysRoleColumn, Entity as SysRoleEntity, Relation as SysRoleRelation},
         sys_role_menu::{Column as SysRoleMenuColumn, Entity as SysRoleMenuEntity},
+        sys_tokens::{ActiveModel as SysTokensActiveModel, Column as SysTokensColumn},
         sys_user::{Column as SysUserColumn, Relation as SysUserRelation},
         sys_user_role::Relation as SysUserRoleRelation,
     },
-    input::LoginInput,
+    input::{LoginInput, RefreshTokenInput},
     output::{AuthOutput, MenuRoute, RouteMeta, UserRoute, UserWithDomainAndOrgOutput},
 };
 use server_utils::{SecureUtil, TreeBuilder};
@@ -33,7 +39,9 @@ use tracing::{error, instrument};
 use ulid::Ulid;
 
 use super::{
-    dto::sys_auth_dto::LoginContext, event_handlers::auth_event_handler::AuthEventHandler,
+    dto::sys_auth_dto::LoginContext,
+    events::access_token_event::AccessTokenEvent,
+    event_handlers::auth_event_handler::AuthEventHandler,
 };
 use crate::{
     admin::{event_handlers::auth_event_handler::AuthEvent, sys_user_error::UserError},
@@ -68,6 +76,12 @@ pub trait TAuthService: Send + Sync {
     async fn pwd_login(
         &self,
         input: LoginInput,
+        context: LoginContext,
+    ) -> Result<AuthOutput, AppError>;
+
+    async fn refresh_token(
+        &self,
+        input: RefreshTokenInput,
         context: LoginContext,
     ) -> Result<AuthOutput, AppError>;
 
@@ -125,6 +139,109 @@ impl TAuthService for SysAuthService {
 
         // 发送认证事件
         self.send_login_event(&user, &auth_output, &context).await;
+
+        Ok(auth_output)
+    }
+
+    #[instrument(skip(self, input), fields(domain = %context.domain))]
+    async fn refresh_token(
+        &self,
+        input: RefreshTokenInput,
+        context: LoginContext,
+    ) -> Result<AuthOutput, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let now = Local::now().naive_local();
+
+        // 1) 先在交易外读取 sys_tokens 旧记录（仅 ACTIVE 且未过期）。
+        //    依 spec R8：先取出 user_id 给 get_user_roles（沿用既有 &DatabaseConnection 签名），
+        //    再进入交易内重新 SELECT 同一笔做 rotate（并发竞态由 status 唯一过渡保护）。
+        let old = SysTokens::find()
+            .filter(SysTokensColumn::RefreshToken.eq(input.refresh_token.clone()))
+            .filter(SysTokensColumn::Status.eq(TokenStatus::Active.to_string()))
+            .filter(SysTokensColumn::ExpiresAt.gt(now))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError {
+                code: 401,
+                message: "Refresh token invalid".into(),
+            })?;
+
+        // 2) 取角色（在交易外，复用既有 helper）。
+        let role_codes = self.get_user_roles(&old.user_id, &db).await?;
+
+        // 3) 生成新的 AuthOutput（新 JWT + 新 refresh_token ULID）。
+        let auth_output = generate_auth_output(
+            old.user_id.clone(),
+            old.username.clone(),
+            role_codes,
+            old.domain.clone(),
+            None,
+            context.audience,
+        )
+        .await?;
+
+        // 4) 计算 expires_at：now + JwtConfig.refresh_token_expire。
+        let jwt_config = global::get_config::<JwtConfig>()
+            .await
+            .ok_or_else(|| AppError {
+                code: 500,
+                message: "JwtConfig not initialized".to_string(),
+            })?;
+        let expires_at =
+            now + Duration::seconds(jwt_config.refresh_token_expire);
+
+        // 5) 进入交易：重新 SELECT 旧记录 + INSERT 新 token 行 + UPDATE 旧记录 status=REFRESHED。
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        let old_in_txn = SysTokens::find_by_id(old.id.clone())
+            .filter(SysTokensColumn::Status.eq(TokenStatus::Active.to_string()))
+            .filter(SysTokensColumn::ExpiresAt.gt(now))
+            .one(&txn)
+            .await
+            .map_err(|e| AppError::from(e))?;
+
+        let old_in_txn = match old_in_txn {
+            Some(m) => m,
+            None => {
+                txn.rollback().await.map_err(AppError::from)?;
+                return Err(AppError {
+                    code: 401,
+                    message: "Refresh token invalid".into(),
+                });
+            }
+        };
+
+        // INSERT 新 token 行
+        let access_token_event = AccessTokenEvent {
+            access_token: auth_output.token.clone(),
+            refresh_token: auth_output.refresh_token.clone(),
+            user_id: old.user_id.clone(),
+            username: old.username.clone(),
+            domain: old.domain.clone(),
+            ip: context.client_ip.clone(),
+            port: context.client_port,
+            address: context.address.clone(),
+            user_agent: context.user_agent.clone(),
+            request_id: context.request_id.clone(),
+            login_type: context.login_type.clone(),
+            expires_at,
+        };
+
+        if let Err(e) = access_token_event.handle(&txn).await {
+            txn.rollback().await.map_err(AppError::from)?;
+            return Err(e);
+        }
+
+        // UPDATE 旧记录 status=REFRESHED
+        let mut old_active: SysTokensActiveModel = old_in_txn.into();
+        old_active.status = Set(TokenStatus::Refreshed.to_string());
+        if let Err(e) = old_active.update(&txn).await {
+            txn.rollback().await.map_err(AppError::from)?;
+            return Err(AppError::from(e));
+        }
+
+        txn.commit().await.map_err(AppError::from)?;
 
         Ok(auth_output)
     }

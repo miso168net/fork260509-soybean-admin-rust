@@ -1,5 +1,5 @@
-use chrono::{Duration, Local};
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use chrono::NaiveDateTime;
+use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use server_constant::definition::consts::TokenStatus;
 use server_core::web::error::AppError;
 use server_model::admin::entities::sys_tokens::ActiveModel as SysTokensActiveModel;
@@ -17,14 +17,12 @@ pub struct AccessTokenEvent {
     pub user_agent: String,
     pub request_id: String,
     pub login_type: String,
+    pub expires_at: NaiveDateTime,
 }
 
 impl AccessTokenEvent {
-    pub async fn handle(self, db: &DatabaseConnection) -> Result<(), AppError> {
-        let now = Local::now().naive_local();
-        // T003 stub: 預設 14 天到期（對齊 m20260511_070000 migration backfill 規則）。
-        // T004 會改以 JwtConfig.refresh_token_expires_in 取代此 hardcode。
-        let expires_at = now + Duration::days(14);
+    pub async fn handle<C: ConnectionTrait>(self, db: &C) -> Result<(), AppError> {
+        let now = chrono::Local::now().naive_local();
 
         SysTokensActiveModel {
             id: Set(Ulid::new().to_string()),
@@ -41,7 +39,7 @@ impl AccessTokenEvent {
             user_agent: Set(self.user_agent),
             request_id: Set(self.request_id),
             r#type: Set(self.login_type),
-            expires_at: Set(expires_at),
+            expires_at: Set(self.expires_at),
             created_at: Set(now),
             created_by: Set(self.username),
         }
