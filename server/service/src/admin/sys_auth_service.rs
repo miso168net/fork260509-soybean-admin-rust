@@ -203,12 +203,16 @@ impl TAuthService for SysAuthService {
         // 5) 进入交易：重新 SELECT 旧记录 + INSERT 新 token 行 + UPDATE 旧记录 status=REFRESHED。
         let txn = db.begin().await.map_err(AppError::from)?;
 
+        // 在交易内重新 SELECT 旧记录（仍 ACTIVE 且未过期）— 这是 race-protection：
+        // 若同时间另一个 refresh request 已 rotate 此 row 并 commit，此 SELECT 会回 None → 401，
+        // 避免双重 rotate 产生两个 ACTIVE row 关联同一 user_id。本 filter 与第 1 步 (line 161)
+        // 同条件，看似 redundant，实为 defense-in-depth 的关键。
         let old_in_txn = SysTokens::find_by_id(old.id.clone())
             .filter(SysTokensColumn::Status.eq(TokenStatus::Active.to_string()))
             .filter(SysTokensColumn::ExpiresAt.gt(now))
             .one(&txn)
             .await
-            .map_err(|e| AppError::from(e))?;
+            .map_err(AppError::from)?;
 
         let old_in_txn = match old_in_txn {
             Some(m) => m,
