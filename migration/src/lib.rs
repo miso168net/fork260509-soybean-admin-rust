@@ -40,6 +40,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20241024_033933_insert_sys_user_role::Migration),
             Box::new(datas::m20241024_034305_insert_sys_role_menu::Migration),
             Box::new(datas::m20241024_082926_insert_casbin_rule::Migration),
+            // F5.1 auth-login-and-dynamic-menu: minimum Casbin policy seed
+            Box::new(datas::m20260515_a_f51_minimum_seed::Migration),
         ]
     }
 }

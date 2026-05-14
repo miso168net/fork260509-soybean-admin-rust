@@ -26,3 +26,6 @@ mongodb = { workspace = true }
 [features]
 default = ["debug-print"]
 debug-print = ["sea-orm/debug-print"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

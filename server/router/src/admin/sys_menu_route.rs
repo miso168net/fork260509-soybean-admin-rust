@@ -3,7 +3,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
-use server_api::admin::SysMenuApi;
+use server_api::admin::{SysAuthenticationApi, SysMenuApi};
 use server_core::web::operation_log::OperationLogLayer;
 use server_global::global::{add_route, RouteInfo};
 
@@ -50,6 +50,12 @@ impl SysMenuRouter {
                 service_name,
                 "获取角色菜单",
             ),
+            RouteInfo::new(
+                &format!("{}/getUserRoutes", base_path),
+                Method::GET,
+                "SysAuthenticationApi",
+                "获取用户路由",
+            ),
         ];
 
         for route in routes {
@@ -63,7 +69,8 @@ impl SysMenuRouter {
             .route("/{id}", get(SysMenuApi::get_menu))
             .route("/", put(SysMenuApi::update_menu))
             .route("/{id}", delete(SysMenuApi::delete_menu))
-            .route("/auth-route/{roleId}", get(SysMenuApi::get_auth_routes));
+            .route("/auth-route/{roleId}", get(SysMenuApi::get_auth_routes))
+            .route("/getUserRoutes", get(SysAuthenticationApi::get_user_routes));
 
         Router::new().nest(base_path, router)
     }

@@ -16,8 +16,7 @@ impl SysAuthenticationRouter {
 
     pub async fn init_protected_router() -> Router {
         let router = Router::new()
-            .route("/getUserInfo", get(SysAuthenticationApi::get_user_info))
-            .route("/getUserRoutes", get(SysAuthenticationApi::get_user_routes));
+            .route("/getUserInfo", get(SysAuthenticationApi::get_user_info));
 
         Router::new().nest("/auth", router)
     }

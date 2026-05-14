@@ -71,7 +71,12 @@ async fn apply_layers<T: Send + Sync + 'static>(
 
     if need_casbin {
         if let Some(casbin) = casbin {
-            router = router.layer(Extension(casbin.clone())).layer(casbin);
+            router = router
+                .layer(Extension(casbin.clone()))
+                .layer(casbin)
+                .layer(axum::middleware::from_fn(
+                    server_middleware::casbin_envelope_adapter::casbin_envelope_adapter,
+                ));
         }
     }
 
