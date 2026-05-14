@@ -23,6 +23,8 @@ pub struct Model {
     pub summary: Option<String>,
     pub created_at: DateTime,
     pub updated_at: Option<DateTime>,
+    #[sea_orm(column_type = "Timestamp", nullable)]
+    pub deleted_at: Option<DateTime>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
