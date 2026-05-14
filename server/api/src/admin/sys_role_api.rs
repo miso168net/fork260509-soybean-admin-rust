@@ -27,9 +27,11 @@ impl SysRoleApi {
 
     pub async fn create_role(
         Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateRoleInput>,
     ) -> Result<Res<SysRoleModel>, AppError> {
-        service.create_role(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.create_role(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn get_role(
@@ -41,9 +43,11 @@ impl SysRoleApi {
 
     pub async fn update_role(
         Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateRoleInput>,
     ) -> Result<Res<SysRoleModel>, AppError> {
-        service.update_role(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.update_role(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn delete_role(

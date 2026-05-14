@@ -1,13 +1,18 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, Set, TransactionTrait,
 };
-use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+    page::PaginatedData,
+};
 use server_model::admin::{
-    facade::sys_user::{
-        self, ActiveModel as SysUserActiveModel, Column as SysUserColumn, Model as SysUserModel,
-    },
+    audit_log,
+    audit_serialize::audit_snapshot,
+    facade::sys_user::{self, ActiveModel as SysUserActiveModel, Column as SysUserColumn},
     input::{CreateUserInput, UpdateUserInput, UserPageRequest},
     output::UserWithoutPassword,
 };
@@ -25,9 +30,17 @@ pub trait TUserService {
         params: UserPageRequest,
     ) -> Result<PaginatedData<UserWithoutPassword>, AppError>;
 
-    async fn create_user(&self, input: CreateUserInput) -> Result<UserWithoutPassword, AppError>;
+    async fn create_user(
+        &self,
+        input: CreateUserInput,
+        actor: &Actor,
+    ) -> Result<UserWithoutPassword, AppError>;
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError>;
-    async fn update_user(&self, input: UpdateUserInput) -> Result<UserWithoutPassword, AppError>;
+    async fn update_user(
+        &self,
+        input: UpdateUserInput,
+        actor: &Actor,
+    ) -> Result<UserWithoutPassword, AppError>;
     async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
@@ -35,11 +48,14 @@ pub trait TUserService {
 pub struct SysUserService;
 
 impl SysUserService {
-    async fn check_username_unique(&self, username: &str) -> Result<(), AppError> {
-        let db = db_helper::get_db_connection().await?;
+    async fn check_username_unique_in_txn<C: ConnectionTrait>(
+        &self,
+        txn: &C,
+        username: &str,
+    ) -> Result<(), AppError> {
         let existing_user = sys_user::find_active()
             .filter(SysUserColumn::Username.eq(username))
-            .one(db.as_ref())
+            .one(txn)
             .await
             .map_err(AppError::from)?;
 
@@ -49,15 +65,6 @@ impl SysUserService {
         Ok(())
     }
 
-    async fn get_user_by_id(&self, id: String) -> Result<SysUserModel, AppError> {
-        let db = db_helper::get_db_connection().await?;
-        sys_user::find_active()
-            .filter(SysUserColumn::Id.eq(id))
-            .one(db.as_ref())
-            .await
-            .map_err(AppError::from)?
-            .ok_or_else(|| UserError::UserNotFound.into())
-    }
 }
 
 #[async_trait]
@@ -106,10 +113,17 @@ impl TUserService for SysUserService {
         })
     }
 
-    async fn create_user(&self, input: CreateUserInput) -> Result<UserWithoutPassword, AppError> {
-        self.check_username_unique(&input.username).await?;
-
+    async fn create_user(
+        &self,
+        input: CreateUserInput,
+        actor: &Actor,
+    ) -> Result<UserWithoutPassword, AppError> {
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        self.check_username_unique_in_txn(&txn, &input.username)
+            .await?;
+
         let user = SysUserActiveModel {
             id: Set(Ulid::new().to_string()),
             domain: Set(input.domain),
@@ -126,7 +140,25 @@ impl TUserService for SysUserService {
             ..Default::default()
         };
 
-        let user_model = user.insert(db.as_ref()).await.map_err(AppError::from)?;
+        let user_model = user.insert(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Insert,
+                entity_type: "sys_user",
+                entity_id: user_model.id.clone(),
+                payload_before: None,
+                payload_after: Some(audit_snapshot(&user_model)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(UserWithoutPassword::from(user_model))
     }
 
@@ -141,13 +173,27 @@ impl TUserService for SysUserService {
             .ok_or_else(|| UserError::UserNotFound.into())
     }
 
-    async fn update_user(&self, input: UpdateUserInput) -> Result<UserWithoutPassword, AppError> {
-        let mut user = self.get_user_by_id(input.id).await?.into_active_model();
+    async fn update_user(
+        &self,
+        input: UpdateUserInput,
+        actor: &Actor,
+    ) -> Result<UserWithoutPassword, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
 
-        if input.user.username != *user.username.as_ref() {
-            self.check_username_unique(&input.user.username).await?;
+        let before = sys_user::find_active()
+            .filter(SysUserColumn::Id.eq(&input.id))
+            .one(&txn)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(UserError::UserNotFound))?;
+
+        if input.user.username != before.username {
+            self.check_username_unique_in_txn(&txn, &input.user.username)
+                .await?;
         }
 
+        let mut user = before.clone().into_active_model();
         user.domain = Set(input.user.domain);
         user.username = Set(input.user.username);
         user.password = Set(input.user.password); // TODO: Note: In a real application, you should hash the password
@@ -157,8 +203,25 @@ impl TUserService for SysUserService {
         user.phone_number = Set(input.user.phone_number);
         user.status = Set(input.user.status);
 
-        let db = db_helper::get_db_connection().await?;
-        let updated_user = user.update(db.as_ref()).await.map_err(AppError::from)?;
+        let updated_user = user.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_user",
+                entity_id: updated_user.id.clone(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_user)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(UserWithoutPassword::from(updated_user))
     }
 

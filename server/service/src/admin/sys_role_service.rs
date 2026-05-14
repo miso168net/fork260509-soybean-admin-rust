@@ -1,10 +1,17 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, PaginatorTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, PaginatorTrait, QueryFilter, Set,
+    TransactionTrait,
 };
-use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+    page::PaginatedData,
+};
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     facade::sys_role::{
         self, ActiveModel as SysRoleActiveModel, Column as SysRoleColumn, Model as SysRoleModel,
     },
@@ -22,9 +29,17 @@ pub trait TRoleService {
         params: RolePageRequest,
     ) -> Result<PaginatedData<SysRoleModel>, AppError>;
 
-    async fn create_role(&self, input: CreateRoleInput) -> Result<SysRoleModel, AppError>;
+    async fn create_role(
+        &self,
+        input: CreateRoleInput,
+        actor: &Actor,
+    ) -> Result<SysRoleModel, AppError>;
     async fn get_role(&self, id: &str) -> Result<SysRoleModel, AppError>;
-    async fn update_role(&self, input: UpdateRoleInput) -> Result<SysRoleModel, AppError>;
+    async fn update_role(
+        &self,
+        input: UpdateRoleInput,
+        actor: &Actor,
+    ) -> Result<SysRoleModel, AppError>;
     async fn delete_role(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
@@ -32,15 +47,19 @@ pub trait TRoleService {
 pub struct SysRoleService;
 
 impl SysRoleService {
-    async fn check_role_exists(&self, id: Option<&str>, code: &str) -> Result<(), AppError> {
-        let db = db_helper::get_db_connection().await?;
+    async fn check_role_exists_in_txn<C: ConnectionTrait>(
+        &self,
+        txn: &C,
+        id: Option<&str>,
+        code: &str,
+    ) -> Result<(), AppError> {
         let mut query = sys_role::find_active().filter(SysRoleColumn::Code.eq(code));
 
         if let Some(id) = id {
             query = query.filter(SysRoleColumn::Id.ne(id));
         }
 
-        let existing_role = query.one(db.as_ref()).await.map_err(AppError::from)?;
+        let existing_role = query.one(txn).await.map_err(AppError::from)?;
 
         if existing_role.is_some() {
             return Err(RoleError::DuplicateRoleCode.into());
@@ -84,10 +103,15 @@ impl TRoleService for SysRoleService {
         })
     }
 
-    async fn create_role(&self, input: CreateRoleInput) -> Result<SysRoleModel, AppError> {
+    async fn create_role(
+        &self,
+        input: CreateRoleInput,
+        actor: &Actor,
+    ) -> Result<SysRoleModel, AppError> {
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
 
-        self.check_role_exists(None, &input.code).await?;
+        self.check_role_exists_in_txn(&txn, None, &input.code).await?;
 
         let role = SysRoleActiveModel {
             id: Set(Ulid::new().to_string()),
@@ -101,7 +125,25 @@ impl TRoleService for SysRoleService {
             ..Default::default()
         };
 
-        let result = role.insert(db.as_ref()).await.map_err(AppError::from)?;
+        let result = role.insert(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Insert,
+                entity_type: "sys_role",
+                entity_id: result.id.clone(),
+                payload_before: None,
+                payload_after: Some(audit_snapshot(&result)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(result)
     }
 
@@ -115,19 +157,23 @@ impl TRoleService for SysRoleService {
             .ok_or_else(|| RoleError::RoleNotFound.into())
     }
 
-    async fn update_role(&self, input: UpdateRoleInput) -> Result<SysRoleModel, AppError> {
+    async fn update_role(
+        &self,
+        input: UpdateRoleInput,
+        actor: &Actor,
+    ) -> Result<SysRoleModel, AppError> {
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
 
-        self.check_role_exists(Some(&input.id), &input.role.code)
+        self.check_role_exists_in_txn(&txn, Some(&input.id), &input.role.code)
             .await?;
 
-        let role: SysRoleActiveModel = sys_role::find_active()
+        let before = sys_role::find_active()
             .filter(SysRoleColumn::Id.eq(&input.id))
-            .one(db.as_ref())
+            .one(&txn)
             .await
             .map_err(AppError::from)?
-            .ok_or_else(|| AppError::from(RoleError::RoleNotFound))?
-            .into();
+            .ok_or_else(|| AppError::from(RoleError::RoleNotFound))?;
 
         let role = SysRoleActiveModel {
             id: Set(input.id.clone()),
@@ -137,10 +183,28 @@ impl TRoleService for SysRoleService {
             description: Set(input.role.description),
 
             updated_at: Set(Some(Local::now().naive_local())),
-            ..role
+            ..before.clone().into()
         };
 
-        let updated_role = role.update(db.as_ref()).await.map_err(AppError::from)?;
+        let updated_role = role.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_role",
+                entity_id: updated_role.id.clone(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_role)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(updated_role)
     }
 

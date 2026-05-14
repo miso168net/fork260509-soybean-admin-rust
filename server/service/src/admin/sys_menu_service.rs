@@ -1,8 +1,16 @@
 use async_trait::async_trait;
 use chrono::Local;
-use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, Set};
-use server_core::web::{audit::Actor, auth::User, error::AppError};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, Set,
+    TransactionTrait,
+};
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+};
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     entities::{
         prelude::SysRoleMenu,
         sea_orm_active_enums::Status,
@@ -29,13 +37,13 @@ pub trait TMenuService {
     async fn create_menu(
         &self,
         input: CreateMenuInput,
-        user: User,
+        actor: &Actor,
     ) -> Result<SysMenuModel, AppError>;
     async fn get_menu(&self, id: i32) -> Result<SysMenuModel, AppError>;
     async fn update_menu(
         &self,
         input: UpdateMenuInput,
-        user: User,
+        actor: &Actor,
     ) -> Result<SysMenuModel, AppError>;
     async fn delete_menu(&self, id: i32, actor: &Actor) -> Result<(), AppError>;
     async fn get_menu_ids_by_role_id(
@@ -94,13 +102,16 @@ impl SysMenuService {
         )
     }
 
-    async fn check_menu_exists(&self, id: Option<i32>, route_name: &str) -> Result<(), AppError> {
-        let db = db_helper::get_db_connection().await?;
-
+    async fn check_menu_exists_in_txn<C: ConnectionTrait>(
+        &self,
+        txn: &C,
+        id: Option<i32>,
+        route_name: &str,
+    ) -> Result<(), AppError> {
         let route_name_exists = sys_menu::find_active()
             .filter(SysMenuColumn::RouteName.eq(route_name))
             .filter(SysMenuColumn::Id.ne(id.unwrap_or(-1)))
-            .one(db.as_ref())
+            .one(txn)
             .await
             .map_err(AppError::from)?
             .is_some();
@@ -180,11 +191,13 @@ impl TMenuService for SysMenuService {
     async fn create_menu(
         &self,
         input: CreateMenuInput,
-        user: User,
+        actor: &Actor,
     ) -> Result<SysMenuModel, AppError> {
-        self.check_menu_exists(None, &input.route_name).await?;
-
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        self.check_menu_exists_in_txn(&txn, None, &input.route_name)
+            .await?;
 
         let menu = SysMenuActiveModel {
             menu_type: Set(input.menu_type),
@@ -206,11 +219,29 @@ impl TMenuService for SysMenuService {
             href: Set(input.href),
             multi_tab: Set(input.multi_tab),
 
-            created_by: Set(user.user_id()),
+            created_by: Set(actor.id.clone()),
             ..Default::default()
         };
 
-        let result = menu.insert(db.as_ref()).await.map_err(AppError::from)?;
+        let result = menu.insert(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Insert,
+                entity_type: "sys_menu",
+                entity_id: result.id.to_string(),
+                payload_before: None,
+                payload_after: Some(audit_snapshot(&result)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(result)
     }
 
@@ -227,15 +258,22 @@ impl TMenuService for SysMenuService {
     async fn update_menu(
         &self,
         input: UpdateMenuInput,
-        user: User,
+        actor: &Actor,
     ) -> Result<SysMenuModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let existing_menu = self.get_menu(input.id).await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
 
-        self.check_menu_exists(Some(input.id), &input.menu.route_name)
+        let before = sys_menu::find_active()
+            .filter(SysMenuColumn::Id.eq(input.id))
+            .one(&txn)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(MenuError::MenuNotFound))?;
+
+        self.check_menu_exists_in_txn(&txn, Some(input.id), &input.menu.route_name)
             .await?;
 
-        let mut menu: SysMenuActiveModel = existing_menu.into();
+        let mut menu: SysMenuActiveModel = before.clone().into();
         menu.menu_type = Set(input.menu.menu_type);
         menu.menu_name = Set(input.menu.menu_name);
         menu.icon_type = Set(input.menu.icon_type);
@@ -256,9 +294,27 @@ impl TMenuService for SysMenuService {
         menu.multi_tab = Set(input.menu.multi_tab);
 
         menu.updated_at = Set(Some(Local::now().naive_local()));
-        menu.updated_by = Set(Some(user.user_id()));
+        menu.updated_by = Set(Some(actor.id.clone()));
 
-        let updated_menu = menu.update(db.as_ref()).await.map_err(AppError::from)?;
+        let updated_menu = menu.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_menu",
+                entity_id: updated_menu.id.to_string(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_menu)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(updated_menu)
     }
 

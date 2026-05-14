@@ -3,11 +3,17 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, IntoActiveModel,
+    PaginatorTrait, QueryFilter, Set, TransactionTrait,
 };
-use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+    page::PaginatedData,
+};
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     facade::sys_endpoint::{
         self, ActiveModel as SysEndpointActiveModel, Column as SysEndpointColumn,
         Model as SysEndpointModel,
@@ -32,41 +38,69 @@ pub trait TEndpointService {
 pub struct SysEndpointService;
 
 impl SysEndpointService {
-    async fn batch_update_endpoints(
+    /// F2.1 N-row 策略（per spec Edge Case + clarify Q3-extra）：sync 內每筆 endpoint
+    /// 變動寫 1 個對應 audit row、不 batch summary。原 batch insert_many.on_conflict
+    /// upsert 改 per-entity INSERT/UPDATE loop、犧牲性能換 audit 粒度。
+    async fn upsert_endpoint_with_audit<C: ConnectionTrait>(
         &self,
-        db: &DatabaseConnection,
-        endpoints: Vec<SysEndpointModel>,
+        txn: &C,
+        endpoint: SysEndpointModel,
+        actor: &Actor,
     ) -> Result<(), AppError> {
         let now = Local::now().naive_local();
-        let active_models: Vec<SysEndpointActiveModel> = endpoints
-            .into_iter()
-            .map(|endpoint| {
-                let mut active_model: SysEndpointActiveModel = endpoint.into_active_model();
-                active_model.updated_at = Set(Some(now));
-                active_model
-            })
-            .collect();
-
-        // facade::sys_endpoint 故意不 re-export Entity 是為了封死 SELECT / DELETE 路徑、
-        // INSERT/UPDATE 仍走 ActiveModel — 這裡是 endpoint_sync upsert 用 insert_many
-        // + on_conflict(...do_update)，屬 facade doc 容許的「非 SELECT/DELETE」路徑。
-        server_model::admin::entities::sys_endpoint::Entity::insert_many(active_models)
-            .on_conflict(
-                sea_orm::sea_query::OnConflict::column(SysEndpointColumn::Id)
-                    .update_columns([
-                        SysEndpointColumn::Path,
-                        SysEndpointColumn::Method,
-                        SysEndpointColumn::Action,
-                        SysEndpointColumn::Resource,
-                        SysEndpointColumn::Controller,
-                        SysEndpointColumn::Summary,
-                        SysEndpointColumn::UpdatedAt,
-                    ])
-                    .to_owned(),
-            )
-            .exec(db)
+        let existing = sys_endpoint::find_active()
+            .filter(SysEndpointColumn::Id.eq(&endpoint.id))
+            .one(txn)
             .await
             .map_err(AppError::from)?;
+
+        if let Some(existing_row) = existing {
+            let mut am: SysEndpointActiveModel = existing_row.clone().into_active_model();
+            am.path = Set(endpoint.path);
+            am.method = Set(endpoint.method);
+            am.action = Set(endpoint.action);
+            am.resource = Set(endpoint.resource);
+            am.controller = Set(endpoint.controller);
+            am.summary = Set(endpoint.summary);
+            am.updated_at = Set(Some(now));
+
+            let updated = am.update(txn).await.map_err(AppError::from)?;
+
+            audit_log::write_in_txn(
+                txn,
+                AuditEvent {
+                    actor,
+                    operation: AuditOperation::Update,
+                    entity_type: "sys_endpoint",
+                    entity_id: updated.id.clone(),
+                    payload_before: Some(audit_snapshot(&existing_row)),
+                    payload_after: Some(audit_snapshot(&updated)),
+                    description: None,
+                    source: AuditSource::Internal,
+                    request_id: None,
+                },
+            )
+            .await?;
+        } else {
+            let am: SysEndpointActiveModel = endpoint.into_active_model();
+            let new_row = am.insert(txn).await.map_err(AppError::from)?;
+
+            audit_log::write_in_txn(
+                txn,
+                AuditEvent {
+                    actor,
+                    operation: AuditOperation::Insert,
+                    entity_type: "sys_endpoint",
+                    entity_id: new_row.id.clone(),
+                    payload_before: None,
+                    payload_after: Some(audit_snapshot(&new_row)),
+                    description: None,
+                    source: AuditSource::Internal,
+                    request_id: None,
+                },
+            )
+            .await?;
+        }
 
         Ok(())
     }
@@ -129,6 +163,7 @@ impl SysEndpointService {
 impl TEndpointService for SysEndpointService {
     async fn sync_endpoints(&self, new_endpoints: Vec<SysEndpointModel>) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
+        let actor = Actor::system("endpoint_sync");
 
         // 获取数据库中现有的所有端点
         let existing_endpoints = sys_endpoint::find_active()
@@ -136,9 +171,13 @@ impl TEndpointService for SysEndpointService {
             .await
             .map_err(AppError::from)?;
 
-        // 批量更新和插入新的端点
-        self.batch_update_endpoints(db.as_ref(), new_endpoints.clone())
-            .await?;
+        // F2.1: per-entity upsert + audit（N-row 策略、取代既有 batch insert_many.on_conflict）
+        let txn = db.begin().await.map_err(AppError::from)?;
+        for endpoint in new_endpoints.iter() {
+            self.upsert_endpoint_with_audit(&txn, endpoint.clone(), &actor)
+                .await?;
+        }
+        txn.commit().await.map_err(AppError::from)?;
 
         // 只有在数据库中已经存在端点的情况下才执行删除操作
         if !existing_endpoints.is_empty() {
@@ -153,7 +192,7 @@ impl TEndpointService for SysEndpointService {
                 .map(|endpoint| endpoint.id.clone())
                 .collect();
 
-            // 批量删除不再存在的端点
+            // 批量删除不再存在的端点（facade soft_delete_by_id 內部已 audit）
             if !endpoints_to_remove.is_empty() {
                 self.batch_remove_endpoints(db.as_ref(), endpoints_to_remove)
                     .await?;

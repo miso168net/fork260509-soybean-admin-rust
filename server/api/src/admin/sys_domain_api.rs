@@ -28,9 +28,11 @@ impl SysDomainApi {
 
     pub async fn create_domain(
         Extension(service): Extension<Arc<SysDomainService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateDomainInput>,
     ) -> Result<Res<SysDomainModel>, AppError> {
-        service.create_domain(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.create_domain(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn get_domain(
@@ -42,9 +44,11 @@ impl SysDomainApi {
 
     pub async fn update_domain(
         Extension(service): Extension<Arc<SysDomainService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateDomainInput>,
     ) -> Result<Res<SysDomainModel>, AppError> {
-        service.update_domain(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.update_domain(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn delete_domain(

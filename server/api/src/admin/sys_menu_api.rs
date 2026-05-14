@@ -33,7 +33,8 @@ impl SysMenuApi {
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateMenuInput>,
     ) -> Result<Res<SysMenuModel>, AppError> {
-        service.create_menu(input, user).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.create_menu(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn get_menu(
@@ -48,7 +49,8 @@ impl SysMenuApi {
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateMenuInput>,
     ) -> Result<Res<SysMenuModel>, AppError> {
-        service.update_menu(input, user).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.update_menu(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn delete_menu(

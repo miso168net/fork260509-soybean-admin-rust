@@ -1,10 +1,17 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, PaginatorTrait, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, PaginatorTrait, QueryFilter, Set,
+    TransactionTrait,
 };
-use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+    page::PaginatedData,
+};
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     entities::sea_orm_active_enums::Status,
     facade::sys_domain::{
         self, ActiveModel as SysDomainActiveModel, Column as SysDomainColumn,
@@ -23,9 +30,17 @@ pub trait TDomainService {
         params: DomainPageRequest,
     ) -> Result<PaginatedData<SysDomainModel>, AppError>;
 
-    async fn create_domain(&self, input: CreateDomainInput) -> Result<SysDomainModel, AppError>;
+    async fn create_domain(
+        &self,
+        input: CreateDomainInput,
+        actor: &Actor,
+    ) -> Result<SysDomainModel, AppError>;
     async fn get_domain(&self, id: &str) -> Result<SysDomainModel, AppError>;
-    async fn update_domain(&self, input: UpdateDomainInput) -> Result<SysDomainModel, AppError>;
+    async fn update_domain(
+        &self,
+        input: UpdateDomainInput,
+        actor: &Actor,
+    ) -> Result<SysDomainModel, AppError>;
     async fn delete_domain(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
@@ -33,19 +48,19 @@ pub trait TDomainService {
 pub struct SysDomainService;
 
 impl SysDomainService {
-    async fn check_domain_exists(
+    async fn check_domain_exists_in_txn<C: ConnectionTrait>(
         &self,
+        txn: &C,
         id: Option<&str>,
         code: &str,
         name: &str,
     ) -> Result<(), AppError> {
         let id_str = id.unwrap_or("-1");
-        let db = db_helper::get_db_connection().await?;
 
         let code_exists = sys_domain::find_active()
             .filter(SysDomainColumn::Code.eq(code))
             .filter(SysDomainColumn::Id.ne(id_str))
-            .one(db.as_ref())
+            .one(txn)
             .await
             .map_err(AppError::from)?
             .is_some();
@@ -57,7 +72,7 @@ impl SysDomainService {
         let name_exists = sys_domain::find_active()
             .filter(SysDomainColumn::Name.eq(name))
             .filter(SysDomainColumn::Id.ne(id_str))
-            .one(db.as_ref())
+            .one(txn)
             .await
             .map_err(AppError::from)?
             .is_some();
@@ -104,11 +119,16 @@ impl TDomainService for SysDomainService {
         })
     }
 
-    async fn create_domain(&self, input: CreateDomainInput) -> Result<SysDomainModel, AppError> {
-        self.check_domain_exists(None, &input.code, &input.name)
-            .await?;
-
+    async fn create_domain(
+        &self,
+        input: CreateDomainInput,
+        actor: &Actor,
+    ) -> Result<SysDomainModel, AppError> {
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        self.check_domain_exists_in_txn(&txn, None, &input.code, &input.name)
+            .await?;
 
         let domain = SysDomainActiveModel {
             id: Set(Ulid::new().to_string()),
@@ -121,7 +141,25 @@ impl TDomainService for SysDomainService {
             ..Default::default()
         };
 
-        let result = domain.insert(db.as_ref()).await.map_err(AppError::from)?;
+        let result = domain.insert(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Insert,
+                entity_type: "sys_domain",
+                entity_id: result.id.clone(),
+                payload_before: None,
+                payload_after: Some(audit_snapshot(&result)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(result)
     }
 
@@ -135,23 +173,52 @@ impl TDomainService for SysDomainService {
             .ok_or_else(|| DomainError::DomainNotFound.into())
     }
 
-    async fn update_domain(&self, input: UpdateDomainInput) -> Result<SysDomainModel, AppError> {
+    async fn update_domain(
+        &self,
+        input: UpdateDomainInput,
+        actor: &Actor,
+    ) -> Result<SysDomainModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let existing_domain = self.get_domain(&input.id).await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
 
-        if existing_domain.code == "built-in" {
+        let before = sys_domain::find_active()
+            .filter(SysDomainColumn::Id.eq(&input.id))
+            .one(&txn)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(DomainError::DomainNotFound))?;
+
+        if before.code == "built-in" {
             return Err(DomainError::BuiltInDomain.into());
         }
 
-        self.check_domain_exists(Some(&input.id), &input.domain.code, &input.domain.name)
+        self.check_domain_exists_in_txn(&txn, Some(&input.id), &input.domain.code, &input.domain.name)
             .await?;
 
-        let mut domain: SysDomainActiveModel = existing_domain.into();
+        let mut domain: SysDomainActiveModel = before.clone().into();
         domain.code = Set(input.domain.code);
         domain.name = Set(input.domain.name);
         domain.description = Set(input.domain.description);
 
-        let updated_domain = domain.update(db.as_ref()).await.map_err(AppError::from)?;
+        let updated_domain = domain.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_domain",
+                entity_id: updated_domain.id.clone(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_domain)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
         Ok(updated_domain)
     }
 

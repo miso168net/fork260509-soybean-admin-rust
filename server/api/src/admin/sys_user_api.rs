@@ -67,9 +67,11 @@ impl SysUserApi {
 
     pub async fn create_user(
         Extension(service): Extension<Arc<SysUserService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
-        service.create_user(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.create_user(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn get_user(
@@ -81,9 +83,11 @@ impl SysUserApi {
 
     pub async fn update_user(
         Extension(service): Extension<Arc<SysUserService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
-        service.update_user(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.update_user(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn delete_user(

@@ -8,10 +8,16 @@ use sea_orm::{
 };
 use server_core::{
     sign::{ApiKeyEvent, ValidatorType},
-    web::{audit::Actor, error::AppError, page::PaginatedData},
+    web::{
+        audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+        error::AppError,
+        page::PaginatedData,
+    },
 };
 use server_global::project_info;
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     facade::sys_access_key::{
         self, ActiveModel as SysAccessKeyActiveModel, Column as SysAccessKeyColumn,
         Model as SysAccessKeyModel,
@@ -34,6 +40,7 @@ pub trait TAccessKeyService {
     async fn create_access_key(
         &self,
         input: CreateAccessKeyInput,
+        actor: &Actor,
     ) -> Result<SysAccessKeyModel, AppError>;
     async fn delete_access_key(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 
@@ -48,8 +55,25 @@ impl SysAccessKeyService {
         &self,
         txn: &DatabaseTransaction,
         access_key: SysAccessKeyActiveModel,
+        actor: &Actor,
     ) -> Result<SysAccessKeyModel, AppError> {
         let result = access_key.insert(txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Insert,
+                entity_type: "sys_access_key",
+                entity_id: result.id.clone(),
+                payload_before: None,
+                payload_after: Some(audit_snapshot(&result)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
 
         // 添加到验证器
         server_core::sign::add_key(ValidatorType::Simple, &result.access_key_id, None).await;
@@ -102,6 +126,7 @@ impl TAccessKeyService for SysAccessKeyService {
     async fn create_access_key(
         &self,
         input: CreateAccessKeyInput,
+        actor: &Actor,
     ) -> Result<SysAccessKeyModel, AppError> {
         let db = db_helper::get_db_connection().await?;
         let txn = db.begin().await.map_err(AppError::from)?;
@@ -122,7 +147,7 @@ impl TAccessKeyService for SysAccessKeyService {
         };
 
         let result = match self
-            .create_access_key_in_transaction(&txn, access_key)
+            .create_access_key_in_transaction(&txn, access_key, actor)
             .await
         {
             Ok(result) => {

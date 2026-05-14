@@ -28,9 +28,11 @@ impl SysAccessKeyApi {
 
     pub async fn create_access_key(
         Extension(service): Extension<Arc<SysAccessKeyService>>,
+        Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateAccessKeyInput>,
     ) -> Result<Res<SysAccessKeyModel>, AppError> {
-        service.create_access_key(input).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.create_access_key(input, &actor).await.map(Res::new_data)
     }
 
     pub async fn delete_access_key(
