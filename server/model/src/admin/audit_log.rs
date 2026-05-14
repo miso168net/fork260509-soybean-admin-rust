@@ -14,7 +14,6 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseTransaction, Set};
 use server_core::web::{
     audit::{AuditEvent, AuditSource},
-    code,
     error::AppError,
 };
 use ulid::Ulid;
@@ -91,9 +90,12 @@ pub async fn write_in_txn(
         created_at: Set(now),
     };
 
-    row.insert(txn).await.map_err(|e| AppError {
-        code: code::CODE_SERVER_DB_ERROR,
-        message: format!("audit log insert failed: {}", e),
+    row.insert(txn).await.map_err(|e| {
+        // 保留 DbErr → AppError 細節（unique violation 等可走專屬 code）；只擴 message prefix
+        // 標明來自 audit insert，方便 caller / grep 區分業務 INSERT 與 audit row INSERT 失敗
+        let mut err = AppError::from(e);
+        err.message = format!("audit log insert failed: {}", err.message);
+        err
     })?;
     Ok(())
 }

@@ -119,38 +119,6 @@ pub struct AuditEvent<'a> {
     pub request_id: Option<String>,
 }
 
-// =============================================================================
-// F3 過渡 — AuditLogCtx + From<&AuditEvent> shim
-// =============================================================================
-//
-// 注：F2.1 G1 階段 facade 7 個檔已順手 shim 改為 AuditEvent + Internal source + payload_before/after=None
-// （make compile pass、保 F3 行為）；fetch_before / fetch_after snapshot enrichment 留 G2 完整 refactor。
-// 此處**暫不**加 `#[deprecated]` attribute — AuditLogCtx 留作 From<&AuditEvent> shim 過渡；
-// G2 階段 audit_log::write_in_txn 介面與 facade snapshot 全到位後、再 cleanup pass 評估 deprecate / remove。
-
-/// audit 寫入時的 payload — F3 既有結構、F2.1 為過渡層保留。
-#[derive(Clone, Debug)]
-pub struct AuditLogCtx<'a> {
-    /// 觸發 audit 的 actor 引用
-    pub actor: &'a Actor,
-    /// 對應 `sys_operation_log.module_name`、固定字串（如 `"sys_user"`）
-    pub entity_type: &'static str,
-    /// 對應 `sys_operation_log.description`（如 `"SOFT_DELETE id=u-001"`）
-    pub description: String,
-    /// 可選的 request_id 透傳
-    pub request_id: Option<String>,
-}
-
-impl<'a, 'b: 'a> From<&'a AuditEvent<'b>> for AuditLogCtx<'a> {
-    fn from(event: &'a AuditEvent<'b>) -> Self {
-        Self {
-            actor: event.actor,
-            entity_type: event.entity_type,
-            description: event
-                .description
-                .clone()
-                .unwrap_or_else(|| format!("{} id={}", event.operation, event.entity_id)),
-            request_id: event.request_id.clone(),
-        }
-    }
-}
+// F3 既有 AuditLogCtx + From<&AuditEvent> shim 在 G1 已被 7 facade 完全 refactor 走 AuditEvent —
+// 0 active callsite (grep verified)、無 external crate 依賴、刪除無 downstream impact。
+// per code-review 2026-05-14 Important #1。
