@@ -13,6 +13,7 @@ use server_core::web::{
 };
 
 use crate::admin::audit_log;
+use crate::admin::audit_serialize::audit_snapshot;
 use crate::admin::entities::sys_endpoint as _entity;
 
 pub use _entity::{ActiveModel, Column, Model, Relation};
@@ -33,6 +34,17 @@ where
         code: code::CODE_SERVER_DB_ERROR,
         message: format!("begin txn failed: {}", e),
     })?;
+
+    // F2.1: fetch before snapshot（active row state）
+    let before = _entity::Entity::find()
+        .filter(_entity::Column::Id.eq(&id))
+        .filter(_entity::Column::DeletedAt.is_null())
+        .one(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("fetch before failed: {}", e),
+        })?;
 
     let res = _entity::Entity::update_many()
         .col_expr(_entity::Column::DeletedAt, Expr::current_timestamp().into())
@@ -59,7 +71,7 @@ where
             operation: AuditOperation::SoftDelete,
             entity_type: "sys_endpoint",
             entity_id: id.clone(),
-            payload_before: None,
+            payload_before: before.as_ref().map(audit_snapshot),
             payload_after: None,
             description: None,
             source: AuditSource::Internal,
@@ -84,6 +96,17 @@ where
         message: format!("begin txn failed: {}", e),
     })?;
 
+    // F2.1: fetch before（軟刪態 snapshot）
+    let before = _entity::Entity::find()
+        .filter(_entity::Column::Id.eq(&id))
+        .filter(_entity::Column::DeletedAt.is_not_null())
+        .one(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("fetch before failed: {}", e),
+        })?;
+
     let res = _entity::Entity::update_many()
         .col_expr(
             _entity::Column::DeletedAt,
@@ -105,6 +128,17 @@ where
         });
     }
 
+    // F2.1: fetch after（active 態 snapshot）
+    let after = _entity::Entity::find()
+        .filter(_entity::Column::Id.eq(&id))
+        .filter(_entity::Column::DeletedAt.is_null())
+        .one(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("fetch after failed: {}", e),
+        })?;
+
     audit_log::write_in_txn(
         &txn,
         AuditEvent {
@@ -112,8 +146,8 @@ where
             operation: AuditOperation::Restore,
             entity_type: "sys_endpoint",
             entity_id: id.clone(),
-            payload_before: None,
-            payload_after: None,
+            payload_before: before.as_ref().map(audit_snapshot),
+            payload_after: after.as_ref().map(audit_snapshot),
             description: None,
             source: AuditSource::Internal,
             request_id: None,
