@@ -6,7 +6,8 @@ use axum::{
 };
 use axum_casbin::{casbin::MgmtApi, CasbinAxumLayer};
 use server_core::web::{
-    auth::User, error::AppError, page::PaginatedData, res::Res, validator::ValidatedForm,
+    audit::Actor, auth::User, error::AppError, page::PaginatedData, res::Res,
+    validator::ValidatedForm,
 };
 use server_service::admin::{
     CreateUserInput, SysUserService, TUserService, UpdateUserInput, UserPageRequest,
@@ -88,7 +89,9 @@ impl SysUserApi {
     pub async fn delete_user(
         Path(id): Path<String>,
         Extension(service): Extension<Arc<SysUserService>>,
+        Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
-        service.delete_user(&id).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.delete_user(&id, &actor).await.map(Res::new_data)
     }
 }

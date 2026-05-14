@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{extract::Path, Extension};
-use server_core::web::{auth::User, error::AppError, res::Res, validator::ValidatedForm};
+use server_core::web::{audit::Actor, auth::User, error::AppError, res::Res, validator::ValidatedForm};
 use server_service::admin::{
     CreateMenuInput, MenuRoute, MenuTree, SysMenuModel, SysMenuService, TMenuService,
     UpdateMenuInput,
@@ -56,8 +56,8 @@ impl SysMenuApi {
         Extension(service): Extension<Arc<SysMenuService>>,
         Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
-        print!("user is {:#?}", user);
-        service.delete_menu(id, user).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.delete_menu(id, &actor).await.map(Res::new_data)
     }
 
     pub async fn get_auth_routes(

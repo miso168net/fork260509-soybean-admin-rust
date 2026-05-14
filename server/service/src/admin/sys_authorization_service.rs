@@ -4,14 +4,19 @@ use async_trait::async_trait;
 use axum_casbin::casbin::{CoreApi, MgmtApi, RbacApi};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use server_core::web::error::AppError;
-use server_model::admin::entities::{
-    prelude::{SysDomain, SysEndpoint, SysMenu, SysRole, SysRoleMenu, SysUser, SysUserRole},
-    sys_domain::Column as SysDomainColumn,
-    sys_endpoint::Column as SysEndpointColumn,
-    sys_menu::Column as SysMenuColumn,
-    sys_role::Column as SysRoleColumn,
-    sys_role_menu::{ActiveModel as SysRoleMenuActiveModel, Column as SysRoleMenuColumn},
-    sys_user_role::{ActiveModel as SysUserRoleActiveModel, Column as SysUserRoleColumn},
+use server_model::admin::{
+    entities::{
+        prelude::{SysRoleMenu, SysUserRole},
+        sys_role_menu::{ActiveModel as SysRoleMenuActiveModel, Column as SysRoleMenuColumn},
+        sys_user_role::{ActiveModel as SysUserRoleActiveModel, Column as SysUserRoleColumn},
+    },
+    facade::{
+        sys_domain::{self, Column as SysDomainColumn},
+        sys_endpoint::{self, Column as SysEndpointColumn},
+        sys_menu::{self, Column as SysMenuColumn},
+        sys_role::{self, Column as SysRoleColumn},
+        sys_user,
+    },
 };
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -75,7 +80,7 @@ impl SysAuthorizationService {
     ) -> Result<(String, String, String), AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let domain = SysDomain::find()
+        let domain = sys_domain::find_active()
             .filter(SysDomainColumn::Code.eq(domain_code))
             .one(db.as_ref())
             .await
@@ -83,7 +88,7 @@ impl SysAuthorizationService {
 
         let domain = domain.ok_or_else(|| AuthorizationError::DomainNotFound)?;
 
-        let role = SysRole::find()
+        let role = sys_role::find_active()
             .filter(SysRoleColumn::Id.eq(role_id))
             .one(db.as_ref())
             .await
@@ -97,7 +102,7 @@ impl SysAuthorizationService {
     async fn check_role(&self, role_id: &str) -> Result<String, AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let role = SysRole::find()
+        let role = sys_role::find_active()
             .filter(SysRoleColumn::Id.eq(role_id))
             .one(db.as_ref())
             .await
@@ -113,7 +118,7 @@ impl SysAuthorizationService {
         &self,
         role_code: &str,
         domain: &str,
-        new_permissions: Vec<server_model::admin::entities::sys_endpoint::Model>,
+        new_permissions: Vec<server_model::admin::facade::sys_endpoint::Model>,
         enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
     ) -> Result<(), AppError> {
         let mut enforcer_write = enforcer.write().await;
@@ -198,7 +203,7 @@ impl TAuthorizationService for SysAuthorizationService {
         let (domain_code, _, role_code) = self.check_domain_and_role(&domain, &role_id).await?;
 
         let db = db_helper::get_db_connection().await?;
-        let permissions = SysEndpoint::find()
+        let permissions = sys_endpoint::find_active()
             .filter(SysEndpointColumn::Id.is_in(permissions))
             .all(db.as_ref())
             .await
@@ -223,7 +228,7 @@ impl TAuthorizationService for SysAuthorizationService {
         let (domain_code, role_id, _) = self.check_domain_and_role(&domain, &role_id).await?;
 
         let db = db_helper::get_db_connection().await?;
-        let routes = SysMenu::find()
+        let routes = sys_menu::find_active()
             .filter(SysMenuColumn::Id.is_in(route_ids.clone()))
             .all(db.as_ref())
             .await
@@ -298,8 +303,8 @@ impl TAuthorizationService for SysAuthorizationService {
         let _ = self.check_role(&role_id).await?;
 
         let db = db_helper::get_db_connection().await?;
-        let users = SysUser::find()
-            .filter(server_model::admin::entities::sys_user::Column::Id.is_in(user_ids.clone()))
+        let users = sys_user::find_active()
+            .filter(server_model::admin::facade::sys_user::Column::Id.is_in(user_ids.clone()))
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;

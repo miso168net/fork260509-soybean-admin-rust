@@ -1,13 +1,14 @@
 pub use errors::*;
 pub use server_model::admin::{
     entities::{
-        prelude::{SysDomain, SysEndpoint, SysMenu, SysRole, SysUser},
+        sys_login_log::Model as SysLoginLogModel,
+        sys_operation_log::Model as SysOperationLogModel,
+    },
+    facade::{
         sys_access_key::Model as SysAccessKeyModel,
         sys_domain::Model as SysDomainModel,
         sys_endpoint::Model as SysEndpointModel,
-        sys_login_log::Model as SysLoginLogModel,
         sys_menu::Model as SysMenuModel,
-        sys_operation_log::Model as SysOperationLogModel,
         sys_organization::Model as SysOrganizationModel,
         sys_role::Model as SysRoleModel,
     },

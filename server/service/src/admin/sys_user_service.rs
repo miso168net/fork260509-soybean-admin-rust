@@ -4,13 +4,10 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, PaginatorTrait,
     QueryFilter, Set,
 };
-use server_core::web::{error::AppError, page::PaginatedData};
+use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
-    entities::{
-        prelude::SysUser,
-        sys_user::{
-            ActiveModel as SysUserActiveModel, Column as SysUserColumn, Model as SysUserModel,
-        },
+    facade::sys_user::{
+        self, ActiveModel as SysUserActiveModel, Column as SysUserColumn, Model as SysUserModel,
     },
     input::{CreateUserInput, UpdateUserInput, UserPageRequest},
     output::UserWithoutPassword,
@@ -32,7 +29,7 @@ pub trait TUserService {
     async fn create_user(&self, input: CreateUserInput) -> Result<UserWithoutPassword, AppError>;
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError>;
     async fn update_user(&self, input: UpdateUserInput) -> Result<UserWithoutPassword, AppError>;
-    async fn delete_user(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
 #[derive(Clone)]
@@ -41,7 +38,7 @@ pub struct SysUserService;
 impl SysUserService {
     async fn check_username_unique(&self, username: &str) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-        let existing_user = SysUser::find()
+        let existing_user = sys_user::find_active()
             .filter(SysUserColumn::Username.eq(username))
             .one(db.as_ref())
             .await
@@ -55,7 +52,8 @@ impl SysUserService {
 
     async fn get_user_by_id(&self, id: String) -> Result<SysUserModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysUser::find_by_id(id)
+        sys_user::find_active()
+            .filter(SysUserColumn::Id.eq(id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -67,7 +65,7 @@ impl SysUserService {
 impl TUserService for SysUserService {
     async fn find_all(&self) -> Result<Vec<UserWithoutPassword>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysUser::find()
+        sys_user::find_active()
             .all(db.as_ref())
             .await
             .map(|users| users.into_iter().map(UserWithoutPassword::from).collect())
@@ -79,7 +77,7 @@ impl TUserService for SysUserService {
         params: UserPageRequest,
     ) -> Result<PaginatedData<UserWithoutPassword>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysUser::find();
+        let mut query = sys_user::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any().add(SysUserColumn::Username.contains(keywords));
@@ -135,7 +133,8 @@ impl TUserService for SysUserService {
 
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysUser::find_by_id(id)
+        sys_user::find_active()
+            .filter(SysUserColumn::Id.eq(id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -164,18 +163,8 @@ impl TUserService for SysUserService {
         Ok(UserWithoutPassword::from(updated_user))
     }
 
-    async fn delete_user(&self, id: &str) -> Result<(), AppError> {
+    async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-
-        let result = SysUser::delete_by_id(id)
-            .exec(db.as_ref())
-            .await
-            .map_err(AppError::from)?;
-
-        if result.rows_affected == 0 {
-            return Err(UserError::UserNotFound.into());
-        }
-
-        Ok(())
+        sys_user::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await
     }
 }

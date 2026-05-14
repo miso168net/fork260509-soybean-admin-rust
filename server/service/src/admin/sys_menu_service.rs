@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, Set};
-use server_core::web::{auth::User, error::AppError};
+use server_core::web::{audit::Actor, auth::User, error::AppError};
 use server_model::admin::{
     entities::{
-        prelude::{SysMenu, SysRoleMenu},
+        prelude::SysRoleMenu,
         sea_orm_active_enums::Status,
-        sys_menu::{
-            ActiveModel as SysMenuActiveModel, Column as SysMenuColumn, Model as SysMenuModel,
-        },
         sys_role_menu::Column as SysRoleMenuColumn,
+    },
+    facade::sys_menu::{
+        self, ActiveModel as SysMenuActiveModel, Column as SysMenuColumn, Model as SysMenuModel,
     },
     input::{CreateMenuInput, UpdateMenuInput},
     output::{MenuRoute, MenuTree, RouteMeta},
@@ -37,7 +37,7 @@ pub trait TMenuService {
         input: UpdateMenuInput,
         user: User,
     ) -> Result<SysMenuModel, AppError>;
-    async fn delete_menu(&self, id: i32, user: User) -> Result<(), AppError>;
+    async fn delete_menu(&self, id: i32, actor: &Actor) -> Result<(), AppError>;
     async fn get_menu_ids_by_role_id(
         &self,
         role_id: String,
@@ -97,7 +97,7 @@ impl SysMenuService {
     async fn check_menu_exists(&self, id: Option<i32>, route_name: &str) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let route_name_exists = SysMenu::find()
+        let route_name_exists = sys_menu::find_active()
             .filter(SysMenuColumn::RouteName.eq(route_name))
             .filter(SysMenuColumn::Id.ne(id.unwrap_or(-1)))
             .one(db.as_ref())
@@ -118,7 +118,7 @@ impl TMenuService for SysMenuService {
     async fn tree_menu(&self) -> Result<Vec<MenuTree>, AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let menus = SysMenu::find()
+        let menus = sys_menu::find_active()
             .filter(SysMenuColumn::Constant.eq(false))
             .filter(SysMenuColumn::Status.eq(Status::Enabled))
             .all(db.as_ref())
@@ -131,7 +131,7 @@ impl TMenuService for SysMenuService {
 
     async fn get_menu_list(&self) -> Result<Vec<MenuTree>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let menus = SysMenu::find()
+        let menus = sys_menu::find_active()
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;
@@ -143,7 +143,7 @@ impl TMenuService for SysMenuService {
     async fn get_constant_routes(&self) -> Result<Vec<MenuRoute>, AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let menus: Vec<SysMenuModel> = SysMenu::find()
+        let menus: Vec<SysMenuModel> = sys_menu::find_active()
             .filter(SysMenuColumn::Constant.eq(true))
             .filter(SysMenuColumn::Status.eq(Status::Enabled))
             .all(db.as_ref())
@@ -216,7 +216,8 @@ impl TMenuService for SysMenuService {
 
     async fn get_menu(&self, id: i32) -> Result<SysMenuModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysMenu::find_by_id(id)
+        sys_menu::find_active()
+            .filter(SysMenuColumn::Id.eq(id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -261,13 +262,9 @@ impl TMenuService for SysMenuService {
         Ok(updated_menu)
     }
 
-    async fn delete_menu(&self, id: i32, _user: User) -> Result<(), AppError> {
+    async fn delete_menu(&self, id: i32, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysMenu::delete_by_id(id)
-            .exec(db.as_ref())
-            .await
-            .map_err(AppError::from)?;
-        Ok(())
+        sys_menu::soft_delete_by_id(db.as_ref(), id, actor).await
     }
 
     async fn get_menu_ids_by_role_id(
@@ -293,7 +290,7 @@ impl TMenuService for SysMenuService {
             return Ok(vec![]);
         }
 
-        let menus = SysMenu::find()
+        let menus = sys_menu::find_active()
             .filter(
                 Condition::all()
                     .add(SysMenuColumn::Id.is_in(menu_ids))

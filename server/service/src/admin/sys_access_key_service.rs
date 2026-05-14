@@ -8,16 +8,13 @@ use sea_orm::{
 };
 use server_core::{
     sign::{ApiKeyEvent, ValidatorType},
-    web::{error::AppError, page::PaginatedData},
+    web::{audit::Actor, error::AppError, page::PaginatedData},
 };
 use server_global::project_info;
 use server_model::admin::{
-    entities::{
-        prelude::SysAccessKey,
-        sys_access_key::{
-            ActiveModel as SysAccessKeyActiveModel, Column as SysAccessKeyColumn,
-            Model as SysAccessKeyModel,
-        },
+    facade::sys_access_key::{
+        self, ActiveModel as SysAccessKeyActiveModel, Column as SysAccessKeyColumn,
+        Model as SysAccessKeyModel,
     },
     input::{AccessKeyPageRequest, CreateAccessKeyInput},
 };
@@ -38,7 +35,7 @@ pub trait TAccessKeyService {
         &self,
         input: CreateAccessKeyInput,
     ) -> Result<SysAccessKeyModel, AppError>;
-    async fn delete_access_key(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_access_key(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 
     async fn initialize_access_key(&self) -> Result<(), AppError>;
 }
@@ -66,30 +63,6 @@ impl SysAccessKeyService {
         Ok(result)
     }
 
-    async fn delete_access_key_in_transaction(
-        &self,
-        txn: &DatabaseTransaction,
-        id: &str,
-    ) -> Result<(), AppError> {
-        // 先获取 access key 信息
-        let access_key = SysAccessKey::find_by_id(id)
-            .one(txn)
-            .await
-            .map_err(AppError::from)?
-            .ok_or_else(|| AppError::from(AccessKeyError::AccessKeyNotFound))?;
-
-        // 从数据库中删除
-        SysAccessKey::delete_by_id(id)
-            .exec(txn)
-            .await
-            .map_err(AppError::from)?;
-
-        // 从验证器中移除
-        server_core::sign::remove_key(ValidatorType::Simple, &access_key.access_key_id).await;
-        server_core::sign::remove_key(ValidatorType::Complex, &access_key.access_key_id).await;
-
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -99,7 +72,7 @@ impl TAccessKeyService for SysAccessKeyService {
         params: AccessKeyPageRequest,
     ) -> Result<PaginatedData<SysAccessKeyModel>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysAccessKey::find();
+        let mut query = sys_access_key::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any().add(SysAccessKeyColumn::Domain.contains(keywords));
@@ -165,26 +138,31 @@ impl TAccessKeyService for SysAccessKeyService {
         Ok(result)
     }
 
-    async fn delete_access_key(&self, id: &str) -> Result<(), AppError> {
+    async fn delete_access_key(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-        let txn = db.begin().await.map_err(AppError::from)?;
 
-        match self.delete_access_key_in_transaction(&txn, id).await {
-            Ok(_) => {
-                txn.commit().await.map_err(AppError::from)?;
-                Ok(())
-            },
-            Err(e) => {
-                txn.rollback().await.map_err(AppError::from)?;
-                Err(e)
-            },
-        }
+        // 先获取 access key 信息（用於後續從 validator 移除）
+        let access_key = sys_access_key::find_active()
+            .filter(SysAccessKeyColumn::Id.eq(id))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(AccessKeyError::AccessKeyNotFound))?;
+
+        // soft delete（facade 內部開 txn，同時寫 audit log）
+        sys_access_key::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await?;
+
+        // 从验证器中移除
+        server_core::sign::remove_key(ValidatorType::Simple, &access_key.access_key_id).await;
+        server_core::sign::remove_key(ValidatorType::Complex, &access_key.access_key_id).await;
+
+        Ok(())
     }
 
     async fn initialize_access_key(&self) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let access_keys = SysAccessKey::find()
+        let access_keys = sys_access_key::find_active()
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;

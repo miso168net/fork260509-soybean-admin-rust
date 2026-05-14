@@ -3,13 +3,10 @@ use chrono::Local;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, Set,
 };
-use server_core::web::{error::AppError, page::PaginatedData};
+use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
-    entities::{
-        prelude::SysRole,
-        sys_role::{
-            ActiveModel as SysRoleActiveModel, Column as SysRoleColumn, Model as SysRoleModel,
-        },
+    facade::sys_role::{
+        self, ActiveModel as SysRoleActiveModel, Column as SysRoleColumn, Model as SysRoleModel,
     },
     input::{CreateRoleInput, RolePageRequest, UpdateRoleInput},
 };
@@ -28,7 +25,7 @@ pub trait TRoleService {
     async fn create_role(&self, input: CreateRoleInput) -> Result<SysRoleModel, AppError>;
     async fn get_role(&self, id: &str) -> Result<SysRoleModel, AppError>;
     async fn update_role(&self, input: UpdateRoleInput) -> Result<SysRoleModel, AppError>;
-    async fn delete_role(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_role(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
 #[derive(Clone)]
@@ -37,7 +34,7 @@ pub struct SysRoleService;
 impl SysRoleService {
     async fn check_role_exists(&self, id: Option<&str>, code: &str) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysRole::find().filter(SysRoleColumn::Code.eq(code));
+        let mut query = sys_role::find_active().filter(SysRoleColumn::Code.eq(code));
 
         if let Some(id) = id {
             query = query.filter(SysRoleColumn::Id.ne(id));
@@ -60,7 +57,7 @@ impl TRoleService for SysRoleService {
         params: RolePageRequest,
     ) -> Result<PaginatedData<SysRoleModel>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysRole::find();
+        let mut query = sys_role::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any().add(SysRoleColumn::Name.contains(keywords));
@@ -110,7 +107,8 @@ impl TRoleService for SysRoleService {
 
     async fn get_role(&self, id: &str) -> Result<SysRoleModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysRole::find_by_id(id)
+        sys_role::find_active()
+            .filter(SysRoleColumn::Id.eq(id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -123,7 +121,8 @@ impl TRoleService for SysRoleService {
         self.check_role_exists(Some(&input.id), &input.role.code)
             .await?;
 
-        let role: SysRoleActiveModel = SysRole::find_by_id(&input.id)
+        let role: SysRoleActiveModel = sys_role::find_active()
+            .filter(SysRoleColumn::Id.eq(&input.id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -145,12 +144,8 @@ impl TRoleService for SysRoleService {
         Ok(updated_role)
     }
 
-    async fn delete_role(&self, id: &str) -> Result<(), AppError> {
+    async fn delete_role(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysRole::delete_by_id(id)
-            .exec(db.as_ref())
-            .await
-            .map_err(AppError::from)?;
-        Ok(())
+        sys_role::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await
     }
 }

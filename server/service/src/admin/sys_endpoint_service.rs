@@ -3,17 +3,14 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DeleteResult, EntityTrait, IntoActiveModel,
-    PaginatorTrait, QueryFilter, Set,
+    ColumnTrait, Condition, DatabaseConnection, EntityTrait, IntoActiveModel, PaginatorTrait,
+    QueryFilter, Set,
 };
-use server_core::web::{error::AppError, page::PaginatedData};
+use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
-    entities::{
-        prelude::SysEndpoint,
-        sys_endpoint::{
-            ActiveModel as SysEndpointActiveModel, Column as SysEndpointColumn,
-            Model as SysEndpointModel,
-        },
+    facade::sys_endpoint::{
+        self, ActiveModel as SysEndpointActiveModel, Column as SysEndpointColumn,
+        Model as SysEndpointModel,
     },
     input::EndpointPageRequest,
     output::EndpointTree,
@@ -50,7 +47,7 @@ impl SysEndpointService {
             })
             .collect();
 
-        SysEndpoint::insert_many(active_models)
+        server_model::admin::entities::sys_endpoint::Entity::insert_many(active_models)
             .on_conflict(
                 sea_orm::sea_query::OnConflict::column(SysEndpointColumn::Id)
                     .update_columns([
@@ -75,12 +72,12 @@ impl SysEndpointService {
         &self,
         db: &DatabaseConnection,
         endpoints_to_remove: Vec<String>,
-    ) -> Result<DeleteResult, AppError> {
-        SysEndpoint::delete_many()
-            .filter(SysEndpointColumn::Id.is_in(endpoints_to_remove))
-            .exec(db)
-            .await
-            .map_err(AppError::from)
+    ) -> Result<(), AppError> {
+        let actor = Actor::system("endpoint_sync");
+        for id in endpoints_to_remove {
+            sys_endpoint::soft_delete_by_id(db, id, &actor).await?;
+        }
+        Ok(())
     }
 
     fn create_endpoint_tree(&self, endpoints: &[SysEndpointModel]) -> Vec<EndpointTree> {
@@ -127,7 +124,7 @@ impl TEndpointService for SysEndpointService {
         let db = db_helper::get_db_connection().await?;
 
         // 获取数据库中现有的所有端点
-        let existing_endpoints = SysEndpoint::find()
+        let existing_endpoints = sys_endpoint::find_active()
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;
@@ -164,7 +161,7 @@ impl TEndpointService for SysEndpointService {
         params: EndpointPageRequest,
     ) -> Result<PaginatedData<SysEndpointModel>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysEndpoint::find();
+        let mut query = sys_endpoint::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any()
@@ -196,7 +193,7 @@ impl TEndpointService for SysEndpointService {
 
     async fn tree_endpoint(&self) -> Result<Vec<EndpointTree>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let endpoints = SysEndpoint::find()
+        let endpoints = sys_endpoint::find_active()
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;

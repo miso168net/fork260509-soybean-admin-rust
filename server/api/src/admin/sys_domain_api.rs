@@ -4,7 +4,10 @@ use axum::{
     extract::{Path, Query},
     Extension,
 };
-use server_core::web::{error::AppError, page::PaginatedData, res::Res, validator::ValidatedForm};
+use server_core::web::{
+    audit::Actor, auth::User, error::AppError, page::PaginatedData, res::Res,
+    validator::ValidatedForm,
+};
 use server_service::admin::{
     CreateDomainInput, DomainPageRequest, SysDomainModel, SysDomainService, TDomainService,
     UpdateDomainInput,
@@ -47,7 +50,9 @@ impl SysDomainApi {
     pub async fn delete_domain(
         Path(id): Path<String>,
         Extension(service): Extension<Arc<SysDomainService>>,
+        Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
-        service.delete_domain(&id).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.delete_domain(&id, &actor).await.map(Res::new_data)
     }
 }

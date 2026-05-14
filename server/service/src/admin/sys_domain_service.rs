@@ -3,14 +3,12 @@ use chrono::Local;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, Set,
 };
-use server_core::web::{error::AppError, page::PaginatedData};
+use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
-    entities::{
-        prelude::SysDomain,
-        sea_orm_active_enums::Status,
-        sys_domain::{
-            ActiveModel as SysDomainActiveModel, Column as SysDomainColumn, Model as SysDomainModel,
-        },
+    entities::sea_orm_active_enums::Status,
+    facade::sys_domain::{
+        self, ActiveModel as SysDomainActiveModel, Column as SysDomainColumn,
+        Model as SysDomainModel,
     },
     input::{CreateDomainInput, DomainPageRequest, UpdateDomainInput},
 };
@@ -28,7 +26,7 @@ pub trait TDomainService {
     async fn create_domain(&self, input: CreateDomainInput) -> Result<SysDomainModel, AppError>;
     async fn get_domain(&self, id: &str) -> Result<SysDomainModel, AppError>;
     async fn update_domain(&self, input: UpdateDomainInput) -> Result<SysDomainModel, AppError>;
-    async fn delete_domain(&self, id: &str) -> Result<(), AppError>;
+    async fn delete_domain(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 }
 
 #[derive(Clone)]
@@ -44,7 +42,7 @@ impl SysDomainService {
         let id_str = id.unwrap_or("-1");
         let db = db_helper::get_db_connection().await?;
 
-        let code_exists = SysDomain::find()
+        let code_exists = sys_domain::find_active()
             .filter(SysDomainColumn::Code.eq(code))
             .filter(SysDomainColumn::Id.ne(id_str))
             .one(db.as_ref())
@@ -56,7 +54,7 @@ impl SysDomainService {
             return Err(DomainError::DuplicateCode.into());
         }
 
-        let name_exists = SysDomain::find()
+        let name_exists = sys_domain::find_active()
             .filter(SysDomainColumn::Name.eq(name))
             .filter(SysDomainColumn::Id.ne(id_str))
             .one(db.as_ref())
@@ -79,7 +77,7 @@ impl TDomainService for SysDomainService {
         params: DomainPageRequest,
     ) -> Result<PaginatedData<SysDomainModel>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysDomain::find();
+        let mut query = sys_domain::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any().add(SysDomainColumn::Name.contains(keywords));
@@ -129,7 +127,8 @@ impl TDomainService for SysDomainService {
 
     async fn get_domain(&self, id: &str) -> Result<SysDomainModel, AppError> {
         let db = db_helper::get_db_connection().await?;
-        SysDomain::find_by_id(id)
+        sys_domain::find_active()
+            .filter(SysDomainColumn::Id.eq(id))
             .one(db.as_ref())
             .await
             .map_err(AppError::from)?
@@ -156,7 +155,7 @@ impl TDomainService for SysDomainService {
         Ok(updated_domain)
     }
 
-    async fn delete_domain(&self, id: &str) -> Result<(), AppError> {
+    async fn delete_domain(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let domain = self.get_domain(id).await?;
 
         if domain.code == "built-in" {
@@ -164,10 +163,6 @@ impl TDomainService for SysDomainService {
         }
 
         let db = db_helper::get_db_connection().await?;
-        SysDomain::delete_by_id(id)
-            .exec(db.as_ref())
-            .await
-            .map_err(AppError::from)?;
-        Ok(())
+        sys_domain::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await
     }
 }

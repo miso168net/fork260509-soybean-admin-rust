@@ -4,7 +4,10 @@ use axum::{
     extract::{Path, Query},
     Extension,
 };
-use server_core::web::{error::AppError, page::PaginatedData, res::Res, validator::ValidatedForm};
+use server_core::web::{
+    audit::Actor, auth::User, error::AppError, page::PaginatedData, res::Res,
+    validator::ValidatedForm,
+};
 use server_service::admin::{
     CreateRoleInput, RolePageRequest, SysRoleModel, SysRoleService, TRoleService, UpdateRoleInput,
 };
@@ -46,7 +49,9 @@ impl SysRoleApi {
     pub async fn delete_role(
         Path(id): Path<String>,
         Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
-        service.delete_role(&id).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.delete_role(&id, &actor).await.map(Res::new_data)
     }
 }

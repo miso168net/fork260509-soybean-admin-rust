@@ -4,7 +4,10 @@ use axum::{
     extract::{Path, Query},
     Extension,
 };
-use server_core::web::{error::AppError, page::PaginatedData, res::Res, validator::ValidatedForm};
+use server_core::web::{
+    audit::Actor, auth::User, error::AppError, page::PaginatedData, res::Res,
+    validator::ValidatedForm,
+};
 use server_service::admin::{
     AccessKeyPageRequest, CreateAccessKeyInput, SysAccessKeyModel, SysAccessKeyService,
     TAccessKeyService,
@@ -33,7 +36,9 @@ impl SysAccessKeyApi {
     pub async fn delete_access_key(
         Path(id): Path<String>,
         Extension(service): Extension<Arc<SysAccessKeyService>>,
+        Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
-        service.delete_access_key(&id).await.map(Res::new_data)
+        let actor = Actor::from(&user);
+        service.delete_access_key(&id, &actor).await.map(Res::new_data)
     }
 }

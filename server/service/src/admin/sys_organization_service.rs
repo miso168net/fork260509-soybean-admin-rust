@@ -2,9 +2,8 @@ use async_trait::async_trait;
 use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter};
 use server_core::web::{error::AppError, page::PaginatedData};
 use server_model::admin::{
-    entities::{
-        prelude::SysOrganization,
-        sys_organization::{Column as SysOrganizationColumn, Model as SysOrganizationModel},
+    facade::sys_organization::{
+        self, Column as SysOrganizationColumn, Model as SysOrganizationModel,
     },
     input::OrganizationPageRequest,
 };
@@ -28,7 +27,7 @@ impl TOrganizationService for SysOrganizationService {
         params: OrganizationPageRequest,
     ) -> Result<PaginatedData<SysOrganizationModel>, AppError> {
         let db = db_helper::get_db_connection().await?;
-        let mut query = SysOrganization::find();
+        let mut query = sys_organization::find_active();
 
         if let Some(ref keywords) = params.keywords {
             let condition = Condition::any()

@@ -14,14 +14,15 @@ use server_core::web::{
 use server_global::global;
 use server_model::admin::{
     entities::{
-        prelude::{SysRole, SysUser},
         sea_orm_active_enums::Status,
-        sys_domain::Column as SysDomainColumn,
-        sys_menu::{Column as SysMenuColumn, Entity as SysMenuEntity, Model as SysMenuModel},
-        sys_role::{Column as SysRoleColumn, Entity as SysRoleEntity, Relation as SysRoleRelation},
         sys_role_menu::{Column as SysRoleMenuColumn, Entity as SysRoleMenuEntity},
-        sys_user::{Column as SysUserColumn, Relation as SysUserRelation},
         sys_user_role::Relation as SysUserRoleRelation,
+    },
+    facade::{
+        sys_domain::Column as SysDomainColumn,
+        sys_menu::{self, Column as SysMenuColumn, Model as SysMenuModel},
+        sys_role::{self, Column as SysRoleColumn, Relation as SysRoleRelation},
+        sys_user::{self, Column as SysUserColumn, Relation as SysUserRelation},
     },
     input::LoginInput,
     output::{AuthOutput, MenuRoute, RouteMeta, UserRoute, UserWithDomainAndOrgOutput},
@@ -149,7 +150,7 @@ impl TAuthService for SysAuthService {
             .column(SysRoleMenuColumn::MenuId)
             .join_rev(
                 JoinType::InnerJoin,
-                SysRoleEntity::has_many(SysRoleMenuEntity).into(),
+                SysRoleRelation::SysRoleMenu.def(),
             )
             .filter(SysRoleColumn::Code.is_in(role_codes.to_vec()))
             .filter(SysRoleMenuColumn::Domain.eq(domain))
@@ -158,7 +159,7 @@ impl TAuthService for SysAuthService {
             .all(db.as_ref())
             .await?;
 
-        let menus = SysMenuEntity::find()
+        let menus = sys_menu::find_active()
             .filter(SysMenuColumn::Id.is_in(menu_ids))
             .filter(SysMenuColumn::Status.eq(Status::Enabled))
             .order_by_asc(SysMenuColumn::Sequence)
@@ -228,7 +229,7 @@ impl SysAuthService {
     ) -> Result<(UserWithDomainAndOrgOutput, Vec<String>), AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        let user = select_user_with_domain_and_org_info!(SysUser::find())
+        let user = select_user_with_domain_and_org_info!(sys_user::find_active())
             .filter(SysUserColumn::Username.eq(identifier))
             .filter(SysDomainColumn::Code.eq(domain))
             .join(JoinType::InnerJoin, SysUserRelation::SysDomain.def())
@@ -259,7 +260,7 @@ impl SysAuthService {
         user_id: &str,
         db: &DatabaseConnection,
     ) -> Result<Vec<String>, AppError> {
-        SysRole::find()
+        sys_role::find_active()
             .join(JoinType::InnerJoin, SysRoleRelation::SysUserRole.def())
             .join(JoinType::InnerJoin, SysUserRoleRelation::SysUser.def())
             .filter(SysUserColumn::Id.eq(user_id))
