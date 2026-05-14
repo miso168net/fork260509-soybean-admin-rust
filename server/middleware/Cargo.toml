@@ -7,9 +7,12 @@ edition.workspace = true
 
 [dependencies]
 server-core = { path = "../core" }
+server-model = { path = "../model" }
+server-global = { path = "../global" }
 axum-casbin = { path = "../../axum-casbin" }
 
 axum = { workspace = true }
 headers = { workspace = true }
+sea-orm = { workspace = true }
 
 [dev-dependencies]
