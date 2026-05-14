@@ -5150,7 +5150,10 @@ dependencies = [
  "axum 0.8.4",
  "axum-casbin",
  "headers",
+ "sea-orm",
  "server-core",
+ "server-global",
+ "server-model",
 ]
 
 [[package]]
@@ -5163,6 +5166,8 @@ dependencies = [
  "serde",
  "serde_json",
  "server-core",
+ "tokio",
+ "ulid",
  "validator",
 ]
 
