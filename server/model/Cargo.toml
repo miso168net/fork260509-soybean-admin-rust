@@ -16,3 +16,6 @@ derive-new = { workspace = true }
 
 sea-orm = { workspace = true, features = ["runtime-tokio-native-tls", "macros", "with-chrono", "with-json"] }
 ulid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
