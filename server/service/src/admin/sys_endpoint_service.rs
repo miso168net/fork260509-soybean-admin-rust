@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, IntoActiveModel,
-    PaginatorTrait, QueryFilter, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, IntoActiveModel, PaginatorTrait,
+    QueryFilter, Set, TransactionTrait,
 };
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
@@ -41,9 +41,9 @@ impl SysEndpointService {
     /// F2.1 N-row 策略（per spec Edge Case + clarify Q3-extra）：sync 內每筆 endpoint
     /// 變動寫 1 個對應 audit row、不 batch summary。原 batch insert_many.on_conflict
     /// upsert 改 per-entity INSERT/UPDATE loop、犧牲性能換 audit 粒度。
-    async fn upsert_endpoint_with_audit<C: ConnectionTrait>(
+    async fn upsert_endpoint_with_audit(
         &self,
-        txn: &C,
+        txn: &sea_orm::DatabaseTransaction,
         endpoint: SysEndpointModel,
         actor: &Actor,
     ) -> Result<(), AppError> {
