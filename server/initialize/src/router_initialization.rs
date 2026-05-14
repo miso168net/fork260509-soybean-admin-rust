@@ -341,6 +341,7 @@ async fn process_collected_routes() {
                 summary: Some(route.summary),
                 created_at: Local::now().naive_local(),
                 updated_at: None,
+                deleted_at: None,
             }
         })
         .collect();
