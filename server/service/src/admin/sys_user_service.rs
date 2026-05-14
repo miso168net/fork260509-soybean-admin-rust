@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, Condition, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
 };
 use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{

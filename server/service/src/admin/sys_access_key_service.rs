@@ -3,8 +3,8 @@ use std::any::Any;
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, EntityTrait, PaginatorTrait,
-    QueryFilter, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseTransaction, PaginatorTrait, QueryFilter,
+    Set, TransactionTrait,
 };
 use server_core::{
     sign::{ApiKeyEvent, ValidatorType},

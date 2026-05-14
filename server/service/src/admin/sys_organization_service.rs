@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use sea_orm::{ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, PaginatorTrait, QueryFilter};
 use server_core::web::{error::AppError, page::PaginatedData};
 use server_model::admin::{
     facade::sys_organization::{
