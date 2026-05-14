@@ -1,0 +1,45 @@
+# F1.1 rev1 deployment template — copy to application.yaml + override secrets via envvar / _FILE
+# Per spec FR-010 ~ FR-012 + data-model.md §E4.
+
+database:
+    url: "postgres://user:password@localhost/soybean_admin_rust"
+    max_connections: 10
+    min_connections: 1
+    connect_timeout: 30
+    idle_timeout: 600
+server:
+    host: "0.0.0.0"
+    port: 10001
+jwt:
+    # MUST 透過環境變數 override（per F1.1 strict validation）
+    # 此 placeholder 值會被 boot-time validation 攔下 panic
+    jwt_secret: "REPLACE_VIA_ENV_OR_FILE"
+    issuer: "https://your-rev1-deployment.example.com"
+    expire: 7200
+redis:
+    mode: single
+    url: "redis://:password@redis:6379/10"
+
+# === 環境變數注入範例 ===
+#
+# Dev（bare envvar、convenience）:
+#   export APP_JWT_JWT_SECRET="$(openssl rand -hex 32)"
+#   export APP_JWT_ISSUER="https://dev-rev1.example.com"
+#
+# Prod（Docker secrets + _FILE pattern、per Constitution §架構約束）:
+#   $ openssl rand -hex 32 | docker secret create jwt_secret -
+#   compose.yaml:
+#     services:
+#       rust-api:
+#         secrets: [jwt_secret]
+#         environment:
+#           APP_JWT_JWT_SECRET_FILE: /run/secrets/jwt_secret
+#           APP_JWT_ISSUER: https://rev1.prod.example.com
+#     secrets:
+#       jwt_secret:
+#         external: true
+#
+# === 注入 precedence（F1.1 spec FR-007） ===
+#   1. APP_JWT_JWT_SECRET_FILE (highest) — 指 file path、讀取檔案內容為 secret 值
+#   2. APP_JWT_JWT_SECRET      — 直接設 secret 值（dev 用、prod 避免）
+#   3. application.yaml jwt.jwt_secret (lowest、placeholder 值會被 validation 攔下 panic)

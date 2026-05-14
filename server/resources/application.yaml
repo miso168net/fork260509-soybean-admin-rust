@@ -8,7 +8,10 @@ server:
     host: "0.0.0.0"
     port: 10001
 jwt:
-    jwt_secret: "soybean-admin-rust"
+    # F1.1: prod 必透過 APP_JWT_JWT_SECRET_FILE 或 APP_JWT_JWT_SECRET envvar 設真 secret；
+    # 此處 placeholder 值會被 config_init strict validation panic 拒絕、避免誤啟動。
+    # 產生方式：openssl rand -hex 32
+    jwt_secret: "change-me-jwt-secret"
     issuer: "https://github.com/ByteByteBrew/soybean-admin-rust"
     expire: 7200
 redis:

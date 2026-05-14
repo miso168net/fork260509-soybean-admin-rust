@@ -7,9 +7,9 @@ use crate::{
     env_config::{load_config_with_env, EnvConfigLoader},
     model::{Config, OptionalConfigs},
     multi_instance_env::MultiInstanceEnvProcessor,
-    project_error, project_info, DatabaseConfig, DatabasesInstancesConfig, JwtConfig, MongoConfig,
-    MongoInstancesConfig, RedisConfig, RedisInstancesConfig, S3Config, S3InstancesConfig,
-    ServerConfig,
+    project_error, project_info, secret_loader, DatabaseConfig, DatabasesInstancesConfig,
+    JwtConfig, MongoConfig, MongoInstancesConfig, RedisConfig, RedisInstancesConfig, S3Config,
+    S3InstancesConfig, ServerConfig,
 };
 
 #[derive(Debug, Error)]
@@ -63,7 +63,11 @@ pub async fn init_from_file(file_path: &str) -> Result<(), ConfigError> {
     .await;
 
     global::init_config::<ServerConfig>(config.server).await;
-    global::init_config::<JwtConfig>(config.jwt).await;
+
+    // F1.1: _FILE precedence override + strict validation before storing JwtConfig
+    let mut jwt_config = config.jwt;
+    secret_loader::apply_jwt_secret_hardening(&mut jwt_config);
+    global::init_config::<JwtConfig>(jwt_config).await;
 
     if let Some(redis_config) = config.redis {
         global::init_config::<RedisConfig>(redis_config).await;
@@ -405,7 +409,11 @@ async fn init_global_config(config: Config) {
     .await;
 
     global::init_config::<ServerConfig>(config.server).await;
-    global::init_config::<JwtConfig>(config.jwt).await;
+
+    // F1.1: _FILE precedence override + strict validation before storing JwtConfig
+    let mut jwt_config = config.jwt;
+    secret_loader::apply_jwt_secret_hardening(&mut jwt_config);
+    global::init_config::<JwtConfig>(jwt_config).await;
 
     if let Some(redis_config) = config.redis {
         global::init_config::<RedisConfig>(redis_config).await;

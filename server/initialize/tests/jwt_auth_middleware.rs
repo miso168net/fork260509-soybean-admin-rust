@@ -34,7 +34,7 @@ mod tests {
 
         let casbin_middleware = CasbinAxumLayer::new(m, a).await.unwrap();
 
-        initialize_config("../resources/application.yaml").await;
+        initialize_config("../resources/application-test.yaml").await;
         initialize_keys_and_validation().await;
 
         let app = Router::new()

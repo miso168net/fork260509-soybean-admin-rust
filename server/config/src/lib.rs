@@ -14,3 +14,4 @@ mod config_init;
 pub mod env_config;
 mod model;
 pub mod multi_instance_env;
+pub mod secret_loader;

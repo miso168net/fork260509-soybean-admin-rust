@@ -175,7 +175,7 @@ mod tests {
     async fn init() {
         let mut initialized = INITIALIZED.lock().await;
         if initialized.is_none() {
-            initialize_config("../resources/application.yaml").await;
+            initialize_config("../resources/application-test.yaml").await;
             *initialized = Some(Arc::new(()));
         }
     }
