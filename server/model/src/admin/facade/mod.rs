@@ -1,0 +1,7 @@
+pub mod sys_access_key;
+pub mod sys_domain;
+pub mod sys_endpoint;
+pub mod sys_menu;
+pub mod sys_organization;
+pub mod sys_role;
+pub mod sys_user;

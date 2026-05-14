@@ -1,0 +1,121 @@
+//! sys_user facade — 範式 A（非樹狀 entity）
+//!
+//! 故意不 re-export Entity，封死 service code 走 Entity::find() / Entity::delete_*() 路徑。
+//! 4 個 bare function 是 service 入口；UPDATE / INSERT 仍走 ActiveModel。
+
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Select, TransactionTrait};
+use server_core::db::soft_delete::SoftDeletable;
+use server_core::web::{
+    audit::{Actor, AuditLogCtx},
+    code,
+    error::AppError,
+};
+
+use crate::admin::audit_log;
+use crate::admin::entities::sys_user as _entity;
+
+// 公開 re-export（service 建 INSERT/UPDATE 用）：
+pub use _entity::{ActiveModel, Column, Model, Relation};
+// pub use _entity::Entity;  ← 故意不 re-export
+
+// SELECT 4-helper（delegate 到 trait）:
+pub fn find_active() -> Select<_entity::Entity> {
+    <_entity::Entity as SoftDeletable>::find_active()
+}
+pub fn find_with_deleted() -> Select<_entity::Entity> {
+    <_entity::Entity as SoftDeletable>::find_with_deleted()
+}
+
+pub async fn soft_delete_by_id<C>(db: &C, id: String, actor: &Actor) -> Result<(), AppError>
+where
+    C: ConnectionTrait + TransactionTrait,
+{
+    let txn = db.begin().await.map_err(|e| AppError {
+        code: code::CODE_SERVER_DB_ERROR,
+        message: format!("begin txn failed: {}", e),
+    })?;
+
+    let res = _entity::Entity::update_many()
+        .col_expr(_entity::Column::DeletedAt, Expr::current_timestamp().into())
+        .filter(_entity::Column::Id.eq(&id))
+        .filter(_entity::Column::DeletedAt.is_null())
+        .exec(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("soft delete failed: {}", e),
+        })?;
+
+    if res.rows_affected == 0 {
+        return Err(AppError {
+            code: code::CODE_BUSINESS_ENTITY_NOT_FOUND,
+            message: format!("entity not found or already deleted: id={}", id),
+        });
+    }
+
+    audit_log::write_in_txn(
+        &txn,
+        AuditLogCtx {
+            actor,
+            entity_type: "sys_user",
+            description: format!("SOFT_DELETE id={}", id),
+            request_id: None,
+        },
+    )
+    .await?;
+
+    txn.commit().await.map_err(|e| AppError {
+        code: code::CODE_SERVER_DB_ERROR,
+        message: format!("commit failed: {}", e),
+    })?;
+    Ok(())
+}
+
+pub async fn restore_by_id<C>(db: &C, id: String, actor: &Actor) -> Result<(), AppError>
+where
+    C: ConnectionTrait + TransactionTrait,
+{
+    let txn = db.begin().await.map_err(|e| AppError {
+        code: code::CODE_SERVER_DB_ERROR,
+        message: format!("begin txn failed: {}", e),
+    })?;
+
+    let res = _entity::Entity::update_many()
+        .col_expr(
+            _entity::Column::DeletedAt,
+            Expr::value(None::<chrono::NaiveDateTime>),
+        )
+        .filter(_entity::Column::Id.eq(&id))
+        .filter(_entity::Column::DeletedAt.is_not_null())
+        .exec(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("restore failed: {}", e),
+        })?;
+
+    if res.rows_affected == 0 {
+        return Err(AppError {
+            code: code::CODE_BUSINESS_ENTITY_NOT_FOUND,
+            message: format!("entity not found or already active: id={}", id),
+        });
+    }
+
+    audit_log::write_in_txn(
+        &txn,
+        AuditLogCtx {
+            actor,
+            entity_type: "sys_user",
+            description: format!("RESTORE id={}", id),
+            request_id: None,
+        },
+    )
+    .await?;
+
+    txn.commit().await.map_err(|e| AppError {
+        code: code::CODE_SERVER_DB_ERROR,
+        message: format!("commit failed: {}", e),
+    })?;
+    Ok(())
+}
