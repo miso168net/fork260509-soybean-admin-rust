@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{body::Body, http::StatusCode, response::IntoResponse, Extension, Router};
+use axum::{body::Body, http::StatusCode, response::IntoResponse, routing::get, Extension, Router};
 use axum_casbin::CasbinAxumLayer;
 use chrono::Local;
 use http::Request;
@@ -317,6 +317,10 @@ pub async fn initialize_admin_router() -> Router {
         false,
         Some(complex_validation)
     );
+
+    // W-F1 T020: public /health route — bypasses jwt/casbin/api-key middleware
+    // and apply_layers TraceLayer (silent log per FR-015).
+    app = app.merge(Router::new().route("/health", get(|| async { "ok" })));
 
     app = app.fallback(handler_404);
 

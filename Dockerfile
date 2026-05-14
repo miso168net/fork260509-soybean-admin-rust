@@ -1,81 +1,78 @@
-ARG RUST_VERSION=1.86.0
-ARG APP_NAME=server
-ARG ALPINE_VERSION=3.21
-ARG APP_PORT=10001
-ARG APP_USER=appuser
+# =============================================================================
+# rust-api Dockerfile — rev1 deploy 版本(W-F1)
+#
+# 變動 vs 既有 alpine+musl 版本:
+# - base image: rust:1.86-alpine + alpine:3.21 → rust:1.86-slim-bookworm + debian:bookworm-slim
+# - openssl: static(musl-libs-static) → dynamic(libssl3)
+# - 同時 build 兩個 binary:server + migration(支援 W-F8 migration init container)
+# - runtime 加 curl(W-F3 compose healthcheck 用)
+# - non-root user:appuser → rust-api(uid 10001 沿用)
+# - 移除 --no-default-features(走 default features per brainstorm Q2)
+# - 加 ENV APP_SERVER_PORT=11081(per Q1 clarify、走 F1.1 env-override / application.yaml 不動)
+#
+# 不在 W-F1 範疇:多 arch build / HEALTHCHECK directive / migration entrypoint
+# / cleanup-job entrypoint / secret 注入 / :latest tag(留 W-F3 ~ W-F18)
+# =============================================================================
+
+ARG RUST_VERSION=1.86
+ARG DEBIAN_CODENAME=bookworm
+ARG APP_USER=rust-api
 ARG APP_UID=10001
+ARG APP_PORT=11081
 ARG TZ=Asia/Shanghai
 
-#################################################
-# 构建阶段 - 编译Rust项目
-#################################################
-FROM rust:${RUST_VERSION}-alpine AS build
-ARG APP_NAME
+# -----------------------------------------------------------------------------
+# Stage 1: builder
+# -----------------------------------------------------------------------------
+FROM rust:${RUST_VERSION}-slim-${DEBIAN_CODENAME} AS builder
 WORKDIR /app
 
-# 安装必要的构建工具和依赖
-# clang/lld: 用于更快的链接
-# musl-dev: 提供C标准库
-# openssl-dev/openssl-libs-static: SSL支持(同时包含动态和静态库)
-RUN apk add --no-cache \
-    clang lld musl-dev \
-    git pkgconfig \
-    openssl-dev openssl-libs-static
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config libssl-dev ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
 
-# 复制项目文件到容器中
+# COPY 整個 workspace(.dockerignore 已排除 /target /deploy /.idea /.vscode 等)
 COPY . .
 
-# 构建可执行文件
-# 使用Docker缓存挂载提升后续构建速度
+# BuildKit cache mount 加速 incremental build(per FR-003)
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release --bin ${APP_NAME} --no-default-features && \
-    cp target/release/${APP_NAME} /bin/server && \
-    strip /bin/server
+    cargo build --release --bin server --bin migration && \
+    cp target/release/server /tmp/server && \
+    cp target/release/migration /tmp/migration && \
+    strip /tmp/server /tmp/migration
 
-#################################################
-# 运行阶段 - 创建精简的运行环境
-#################################################
-FROM alpine:${ALPINE_VERSION} AS final
+# -----------------------------------------------------------------------------
+# Stage 2: runtime
+# -----------------------------------------------------------------------------
+FROM debian:${DEBIAN_CODENAME}-slim AS runtime
 
-# 参数传递到运行阶段
 ARG APP_USER
 ARG APP_UID
-ARG TZ
 ARG APP_PORT
+ARG TZ
 
-# 配置容器环境
-ENV TZ=${TZ} \
-    LANG=en_US.UTF-8 \
-    RUST_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates libssl3 curl tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g ${APP_UID} ${APP_USER} \
+    && useradd -r -u ${APP_UID} -g ${APP_UID} -m -d /home/${APP_USER} -s /usr/sbin/nologin ${APP_USER}
 
-# 配置运行环境
-# - 安装运行时依赖
-# - 创建低权限用户
-# - 创建必要的目录结构
-RUN apk add --no-cache openssl ca-certificates tzdata && \
-    adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "${APP_UID}" \
-    ${APP_USER} && \
-    mkdir -p /app/server/resources && \
-    chown -R ${APP_USER}:${APP_USER} /app
-
-# 从构建阶段复制应用及配置文件
-COPY --from=build /bin/server /bin/
-COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/application.yaml /app/server/resources/
-COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/ip2region.xdb /app/server/resources/
-COPY --from=build --chown=${APP_USER}:${APP_USER} /app/server/resources/rbac_model.conf /app/server/resources/
-
-# 设置工作目录和用户
 WORKDIR /app
+
+COPY --from=builder /tmp/server /usr/local/bin/server
+COPY --from=builder /tmp/migration /usr/local/bin/migration
+COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/application.yaml /app/server/resources/
+COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/ip2region.xdb /app/server/resources/
+COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/rbac_model.conf /app/server/resources/
+
 USER ${APP_USER}
 EXPOSE ${APP_PORT}
 
-# 启动服务
-CMD ["/bin/server"]
+ENV TZ=${TZ} \
+    LANG=en_US.UTF-8 \
+    RUST_ENV=production \
+    APP_SERVER_PORT=${APP_PORT}
+
+ENTRYPOINT ["/usr/local/bin/server"]
