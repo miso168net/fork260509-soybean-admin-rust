@@ -22,6 +22,14 @@ impl MigratorTrait for Migrator {
             Box::new(schemas::m20241023_091204_create_sys_tokens::Migration),
             Box::new(schemas::m20241023_091210_create_sys_user_role::Migration),
             Box::new(schemas::m20241023_091159_create_sys_role_menu::Migration),
+            // F3 soft-delete-infrastructure: 7 entity 加 deleted_at + partial unique index
+            Box::new(schemas::m20260514_a_add_soft_delete_to_sys_user::Migration),
+            Box::new(schemas::m20260514_b_add_soft_delete_to_sys_role::Migration),
+            Box::new(schemas::m20260514_c_add_soft_delete_to_sys_menu::Migration),
+            Box::new(schemas::m20260514_d_add_soft_delete_to_sys_domain::Migration),
+            Box::new(schemas::m20260514_e_add_soft_delete_to_sys_organization::Migration),
+            Box::new(schemas::m20260514_f_add_soft_delete_to_sys_endpoint::Migration),
+            Box::new(schemas::m20260514_g_add_soft_delete_to_sys_access_key::Migration),
             // 数据迁移
             Box::new(datas::m20241023_102950_insert_sys_domain::Migration),
             Box::new(datas::m20241024_033005_insert_sys_user::Migration),
