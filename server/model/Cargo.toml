@@ -15,3 +15,4 @@ validator = { workspace = true, features = ["derive"] }
 derive-new = { workspace = true }
 
 sea-orm = { workspace = true, features = ["runtime-tokio-native-tls", "macros", "with-chrono", "with-json"] }
+ulid = { workspace = true }
