@@ -1,7 +1,7 @@
 use axum::{body::Body, extract::Request, middleware::Next, response::IntoResponse};
 use axum_casbin::CasbinVals;
 use headers::{authorization::Bearer, Authorization, HeaderMapExt};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, QueryFilter};
 use server_core::web::{auth::User, code, error::AppError, jwt::JwtUtils, res::Res};
 use server_global::global::GLOBAL_PRIMARY_DB;
 use server_model::admin::facade::sys_user;
