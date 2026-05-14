@@ -1,11 +1,8 @@
 use async_trait::async_trait;
-use axum::{
-    extract::{FromRequest, Request},
-    http::StatusCode,
-};
+use axum::extract::{FromRequest, Request};
 use serde::{Deserialize, Serialize};
 
-use crate::web::res::Res;
+use crate::web::{code, res::Res};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -120,10 +117,12 @@ where
         _state: &S,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         async move {
-            req.extensions()
-                .get::<User>()
-                .cloned()
-                .ok_or_else(|| Res::new_error(StatusCode::UNAUTHORIZED.as_u16(), "Unauthorized"))
+            req.extensions().get::<User>().cloned().ok_or_else(|| {
+                Res::new_error(
+                    code::CODE_PERMISSION_CASBIN_DENY,
+                    "unauthorized: authentication required",
+                )
+            })
         }
     }
 }

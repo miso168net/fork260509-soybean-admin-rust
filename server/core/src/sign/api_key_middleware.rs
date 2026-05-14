@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, Uri},
     middleware::Next,
     response::IntoResponse,
 };
@@ -10,7 +10,7 @@ use server_constant::definition::consts::SystemEvent;
 use server_global::global;
 use std::{collections::HashSet, sync::RwLock};
 
-use crate::web::res::Res;
+use crate::web::{code, res::Res};
 
 use super::{ApiKeyEvent, ComplexApiKeyValidator, SimpleApiKeyValidator};
 
@@ -126,11 +126,11 @@ pub async fn api_key_middleware(
     match validate_request(&validator, &req) {
         Ok(true) => next.run(req).await.into_response(),
         Ok(false) => Res::<()>::new_error(
-            StatusCode::UNAUTHORIZED.as_u16(),
+            code::CODE_PERMISSION_API_KEY_SIGNATURE_INVALID,
             "Invalid API key or signature",
         )
         .into_response(),
-        Err(e) => Res::<()>::new_error(StatusCode::BAD_REQUEST.as_u16(), e).into_response(),
+        Err(e) => Res::<()>::new_error(code::CODE_PERMISSION_API_KEY_MISSING, e).into_response(),
     }
 }
 

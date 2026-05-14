@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use server_core::web::page::PageRequest;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EndpointPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,

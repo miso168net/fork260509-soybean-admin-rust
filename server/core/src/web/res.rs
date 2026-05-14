@@ -1,12 +1,12 @@
 use std::{fmt::Debug, string::ToString};
 
 use axum::{
-    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
 
+use super::code;
 use crate::web::page::PaginatedData;
 
 #[derive(Debug, Serialize, Default)]
@@ -21,7 +21,7 @@ pub struct Res<T> {
 impl<T: Serialize> Res<T> {
     pub fn new_paginated(data: PaginatedData<T>) -> Res<PaginatedData<T>> {
         Res {
-            code: StatusCode::OK.as_u16(),
+            code: code::CODE_SUCCESS,
             data: Some(data),
             msg: "success".to_string(),
             success: true,
@@ -30,7 +30,7 @@ impl<T: Serialize> Res<T> {
 
     pub fn new_success(data: T, msg: &str) -> Self {
         Self {
-            code: StatusCode::OK.as_u16(),
+            code: code::CODE_SUCCESS,
             data: Some(data),
             msg: msg.to_string(),
             success: true,
@@ -48,7 +48,7 @@ impl<T: Serialize> Res<T> {
 
     pub fn new_message(msg: &str) -> Self {
         Self {
-            code: StatusCode::OK.as_u16(),
+            code: code::CODE_SUCCESS,
             data: None,
             msg: msg.to_string(),
             success: true,
@@ -57,7 +57,7 @@ impl<T: Serialize> Res<T> {
 
     pub fn new_data(data: T) -> Self {
         Self {
-            code: StatusCode::OK.as_u16(),
+            code: code::CODE_SUCCESS,
             data: Some(data),
             msg: "success".to_string(),
             success: true,

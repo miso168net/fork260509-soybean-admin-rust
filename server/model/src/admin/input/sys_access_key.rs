@@ -5,6 +5,7 @@ use validator::Validate;
 use crate::admin::entities::sea_orm_active_enums::Status;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccessKeyPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
@@ -12,6 +13,7 @@ pub struct AccessKeyPageRequest {
 }
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct AccessKeyInput {
     pub domain: String,
     pub status: Status,

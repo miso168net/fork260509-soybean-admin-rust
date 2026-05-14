@@ -5,6 +5,7 @@ use validator::Validate;
 use crate::admin::entities::sea_orm_active_enums::Status;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UserPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
@@ -44,6 +45,7 @@ pub struct UserInput {
 pub type CreateUserInput = UserInput;
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateUserInput {
     pub id: String,
     #[serde(flatten)]

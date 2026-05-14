@@ -62,6 +62,7 @@ impl SysAuthenticationApi {
             user_id: user.user_id(),
             user_name: user.username(),
             roles: user.subject(),
+            buttons: vec![],
         };
 
         Ok(Res::new_data(user_info))

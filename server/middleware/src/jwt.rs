@@ -1,9 +1,7 @@
-use axum::{
-    body::Body, extract::Request, http::StatusCode, middleware::Next, response::IntoResponse,
-};
+use axum::{body::Body, extract::Request, middleware::Next, response::IntoResponse};
 use axum_casbin::CasbinVals;
 use headers::{authorization::Bearer, Authorization, HeaderMapExt};
-use server_core::web::{auth::User, jwt::JwtUtils, res::Res};
+use server_core::web::{auth::User, code, error::AppError, jwt::JwtUtils, res::Res};
 
 pub async fn jwt_auth_middleware(
     mut req: Request<Body>,
@@ -14,7 +12,7 @@ pub async fn jwt_auth_middleware(
         Some(auth) => auth.token().to_string(),
         None => {
             return Res::<String>::new_error(
-                StatusCode::UNAUTHORIZED.as_u16(),
+                code::CODE_PERMISSION_CASBIN_DENY,
                 "No token provided or invalid token type",
             )
             .into_response();
@@ -33,9 +31,6 @@ pub async fn jwt_auth_middleware(
             req.extensions_mut().insert(vals);
             next.run(req).await.into_response()
         },
-        Err(err) => {
-            Res::<String>::new_error(StatusCode::UNAUTHORIZED.as_u16(), err.to_string().as_str())
-                .into_response()
-        },
+        Err(err) => AppError::from(err).into_response(),
     }
 }

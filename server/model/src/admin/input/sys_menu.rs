@@ -5,6 +5,7 @@ use validator::Validate;
 use crate::admin::entities::sea_orm_active_enums::{MenuType, Status};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MenuPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
@@ -12,6 +13,7 @@ pub struct MenuPageRequest {
 }
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct MenuInput {
     pub menu_type: MenuType,
     #[validate(length(
@@ -62,6 +64,7 @@ pub struct MenuInput {
 pub type CreateMenuInput = MenuInput;
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateMenuInput {
     pub id: i32,
     #[serde(flatten)]

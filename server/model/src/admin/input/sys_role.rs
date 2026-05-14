@@ -5,6 +5,7 @@ use validator::Validate;
 use crate::admin::entities::sea_orm_active_enums::Status;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RolePageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
@@ -12,6 +13,7 @@ pub struct RolePageRequest {
 }
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct RoleInput {
     pub pid: String,
     #[validate(length(
@@ -34,6 +36,7 @@ pub struct RoleInput {
 pub type CreateRoleInput = RoleInput;
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateRoleInput {
     pub id: String,
     #[serde(flatten)]

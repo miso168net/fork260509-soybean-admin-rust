@@ -3,6 +3,7 @@ use server_core::web::page::PageRequest;
 use validator::Validate;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DomainPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
@@ -10,6 +11,7 @@ pub struct DomainPageRequest {
 }
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct DomainInput {
     #[validate(length(
         min = 1,
@@ -30,6 +32,7 @@ pub struct DomainInput {
 pub type CreateDomainInput = DomainInput;
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateDomainInput {
     pub id: String,
     #[serde(flatten)]

@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct EndpointTree {
     pub id: String,
     pub path: String,

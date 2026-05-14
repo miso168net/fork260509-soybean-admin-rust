@@ -1,6 +1,7 @@
 use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PageRequest {
     #[serde(
         default = "default_current",
@@ -40,6 +41,7 @@ impl Default for PageRequest {
 }
 
 #[derive(Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginatedData<T> {
     pub current: u64,
     pub size: u64,

@@ -2,6 +2,7 @@ use serde::Deserialize;
 use validator::Validate;
 
 #[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
 pub struct LoginInput {
     #[validate(length(min = 5, message = "Username cannot be empty"))]
     pub identifier: String,
