@@ -47,6 +47,9 @@ impl SysEndpointService {
             })
             .collect();
 
+        // facade::sys_endpoint 故意不 re-export Entity 是為了封死 SELECT / DELETE 路徑、
+        // INSERT/UPDATE 仍走 ActiveModel — 這裡是 endpoint_sync upsert 用 insert_many
+        // + on_conflict(...do_update)，屬 facade doc 容許的「非 SELECT/DELETE」路徑。
         server_model::admin::entities::sys_endpoint::Entity::insert_many(active_models)
             .on_conflict(
                 sea_orm::sea_query::OnConflict::column(SysEndpointColumn::Id)
@@ -73,9 +76,13 @@ impl SysEndpointService {
         db: &DatabaseConnection,
         endpoints_to_remove: Vec<String>,
     ) -> Result<(), AppError> {
+        // endpoint_sync 是 periodic job、採 log-and-continue：個別 endpoint 軟刪失敗
+        // （含已被前次 sync 軟刪導致返 6001）不阻斷後續 ID 處理，下次 sync 自然 retry。
         let actor = Actor::system("endpoint_sync");
         for id in endpoints_to_remove {
-            sys_endpoint::soft_delete_by_id(db, id, &actor).await?;
+            if let Err(e) = sys_endpoint::soft_delete_by_id(db, id.clone(), &actor).await {
+                tracing::warn!(target: "endpoint_sync", id = %id, error = ?e, "soft_delete failed");
+            }
         }
         Ok(())
     }

@@ -149,7 +149,12 @@ impl TAccessKeyService for SysAccessKeyService {
             .map_err(AppError::from)?
             .ok_or_else(|| AppError::from(AccessKeyError::AccessKeyNotFound))?;
 
-        // soft delete（facade 內部開 txn，同時寫 audit log）
+        // soft delete（facade 內部開 txn、同時寫 audit log）。
+        //
+        // NOTE: facade commit 後到 validator remove_key 兩行間若 process 崩潰、validator
+        // 在 in-memory 仍保有該 key 至下次 process 重啟 / initialize_access_keys 再次同步。
+        // 既有 hard-delete 版本同 txn 內呼 remove_key 也只能避免 DB 改了但記憶體沒清的窗口、
+        // 改善需把 validator 改為 DB-as-truth 模式（initialize 期間 reload）— 留 F12+。
         sys_access_key::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await?;
 
         // 从验证器中移除
