@@ -18,3 +18,4 @@ pub mod m20260514_d_add_soft_delete_to_sys_domain;
 pub mod m20260514_e_add_soft_delete_to_sys_organization;
 pub mod m20260514_f_add_soft_delete_to_sys_endpoint;
 pub mod m20260514_g_add_soft_delete_to_sys_access_key;
+pub mod m20260514_h_extend_sys_operation_log_audit_fields;

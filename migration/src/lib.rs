@@ -30,6 +30,8 @@ impl MigratorTrait for Migrator {
             Box::new(schemas::m20260514_e_add_soft_delete_to_sys_organization::Migration),
             Box::new(schemas::m20260514_f_add_soft_delete_to_sys_endpoint::Migration),
             Box::new(schemas::m20260514_g_add_soft_delete_to_sys_access_key::Migration),
+            // F2.1 audit-log-infrastructure: sys_operation_log 加 4 結構化欄位
+            Box::new(schemas::m20260514_h_extend_sys_operation_log_audit_fields::Migration),
             // 数据迁移
             Box::new(datas::m20241023_102950_insert_sys_domain::Migration),
             Box::new(datas::m20241024_033005_insert_sys_user::Migration),

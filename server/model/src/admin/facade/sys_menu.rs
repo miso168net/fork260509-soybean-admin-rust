@@ -14,7 +14,7 @@ use sea_orm::{
 };
 use server_core::db::soft_delete::SoftDeletable;
 use server_core::web::{
-    audit::{Actor, AuditLogCtx},
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
     code,
     error::AppError,
 };
@@ -81,10 +81,15 @@ where
 
     audit_log::write_in_txn(
         &txn,
-        AuditLogCtx {
+        AuditEvent {
             actor,
+            operation: AuditOperation::SoftDelete,
             entity_type: "sys_menu",
-            description: format!("SOFT_DELETE id={}", id),
+            entity_id: id.to_string(),
+            payload_before: None,
+            payload_after: None,
+            description: None,
+            source: AuditSource::Internal,
             request_id: None,
         },
     )
@@ -129,10 +134,15 @@ where
 
     audit_log::write_in_txn(
         &txn,
-        AuditLogCtx {
+        AuditEvent {
             actor,
+            operation: AuditOperation::Restore,
             entity_type: "sys_menu",
-            description: format!("RESTORE id={}", id),
+            entity_id: id.to_string(),
+            payload_before: None,
+            payload_after: None,
+            description: None,
+            source: AuditSource::Internal,
             request_id: None,
         },
     )

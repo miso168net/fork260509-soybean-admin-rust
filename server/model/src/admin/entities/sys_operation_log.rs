@@ -40,6 +40,14 @@ pub struct Model {
     pub end_time: DateTime,
     pub duration: i32,
     pub created_at: DateTime,
+    #[sea_orm(column_type = "Text")]
+    pub operation: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub entity_id: Option<String>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub payload_before: Option<JsonValue>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub payload_after: Option<JsonValue>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
