@@ -96,6 +96,12 @@ impl TOperationLogService for SysOperationLogService {
             end_time: Set(event.end_time),
             duration: Set(event.duration),
             created_at: Set(event.created_at),
+            // F2.1 4 新欄 — legacy event 不知道 entity-level operation/id/payload，全填預設值
+            // G4 (T026) refactor 後此 handler 整個改走 audit_log::write_in_txn(AuditEvent)
+            operation: Set("LEGACY".to_string()),
+            entity_id: Set(None),
+            payload_before: Set(None),
+            payload_after: Set(None),
         }
         .insert(db.as_ref())
         .await
