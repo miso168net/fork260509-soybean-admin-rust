@@ -96,13 +96,34 @@ impl EnvConfigLoader {
         }
 
         // 2. 加载环境变量配置（会覆盖文件配置）
+        //
+        // W-F4 Phase 3a-followup: 過濾掉 `<prefix><sep>*<sep>FILE` 形式的 env vars
+        // (典型如 `APP_DATABASE_URL_FILE`, `APP_REDIS_URL_FILE`, `APP_JWT_JWT_SECRET_FILE`)。
+        //
+        // 原因:config-rs Environment source 依 `_` separator 把 key split 為 nested map,
+        // `APP_DATABASE_URL_FILE` 會被解為 `database.url.file`,與 yaml schema
+        // `database.url: String` 衝突,觸發 "invalid type: map, expected a string" 錯誤。
+        //
+        // 修法:build filtered HashMap 排除這些 keys 後傳給 `Environment::source()`。
+        // `_FILE` env vars 仍留在 process env、secret_loader.rs 的 W-F4 helpers
+        // (apply_database_url_hardening / apply_redis_url_hardening / apply_jwt_secret_hardening)
+        // 仍可透過 `std::env::var()` 讀取並 post-load 覆寫。
+        let prefix_pattern = format!("{}{}", self.env_prefix, self.env_separator);
+        let file_suffix = format!("{}FILE", self.env_separator);
+        let filtered_env: std::collections::HashMap<String, String> = std::env::vars()
+            .filter(|(k, _)| !(k.starts_with(&prefix_pattern) && k.ends_with(&file_suffix)))
+            .collect();
+
         project_info!(
-            "Loading config from environment variables with prefix: {}",
-            self.env_prefix
+            "Loading config from environment variables with prefix: {} (filtered out `{}*{}` keys)",
+            self.env_prefix,
+            prefix_pattern,
+            file_suffix
         );
         builder = builder.add_source(
             Environment::with_prefix(&self.env_prefix)
                 .separator(&self.env_separator)
+                .source(Some(filtered_env))
                 .try_parsing(true),
         );
 
@@ -210,6 +231,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+
+    // env::set_var/remove_var 是 process-global mutable state;
+    // 與 secret_loader.rs 一樣用 Mutex 序列化所有觸碰 env 的測試。
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_env_config_loader_creation() {
@@ -228,5 +254,50 @@ mod tests {
     fn test_env_config_loader_with_custom_separator() {
         let loader = EnvConfigLoader::new().with_env_separator("__");
         assert_eq!(loader.env_separator, "__");
+    }
+
+    /// W-F4 Phase 3a-followup regression test:
+    ///
+    /// 重現 docker-compose 場景的 bug — 當 `APP_DATABASE_URL_FILE` 這類 `_FILE`
+    /// env vars set 時,config-rs Environment source 依 `_` separator 把 key split
+    /// 為 nested map `database.url.file`,與 yaml schema `database.url: String` 衝突,
+    /// 觸發 "invalid type: map, expected a string for key `database.url`" 錯誤。
+    ///
+    /// 修法:在 `EnvConfigLoader::load()` 內,build filtered HashMap 排除
+    /// `<prefix>_*_FILE` keys 後再傳給 `Environment::source()`。_FILE env vars
+    /// 仍留在 process env、W-F4 helpers (apply_*_hardening) 仍可讀。
+    #[test]
+    fn test_envconfig_loader_filters_app_file_envvars() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+
+        #[derive(Debug, Deserialize)]
+        struct TestDatabase {
+            url: String,
+        }
+        #[derive(Debug, Deserialize)]
+        struct TestConfig {
+            database: TestDatabase,
+        }
+
+        // Arrange: set yaml-mimicking baseline + `_FILE` 變數 (path 不必存在,
+        // 因為 helper 不會被呼叫 — 我們只測 EnvConfigLoader::load 本身不 panic)
+        std::env::set_var("APP_DATABASE_URL", "postgres://from-env/db");
+        std::env::set_var("APP_DATABASE_URL_FILE", "/run/secrets/database_url");
+        std::env::set_var("APP_REDIS_URL_FILE", "/run/secrets/redis_url");
+        std::env::set_var("APP_JWT_JWT_SECRET_FILE", "/run/secrets/jwt_secret");
+
+        // Act: load — 沒 filter 前會 panic with config-rs map-vs-string error
+        let result: Result<TestConfig, EnvConfigError> =
+            EnvConfigLoader::new().load();
+
+        // Cleanup BEFORE assert (避免 panic 殘留)
+        std::env::remove_var("APP_DATABASE_URL");
+        std::env::remove_var("APP_DATABASE_URL_FILE");
+        std::env::remove_var("APP_REDIS_URL_FILE");
+        std::env::remove_var("APP_JWT_JWT_SECRET_FILE");
+
+        // Assert: load 成功,bare APP_DATABASE_URL 正常 mapping
+        let cfg = result.expect("load should succeed after filtering `_FILE` keys");
+        assert_eq!(cfg.database.url, "postgres://from-env/db");
     }
 }
