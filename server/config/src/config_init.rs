@@ -49,10 +49,18 @@ pub async fn init_from_file(file_path: &str) -> Result<(), ConfigError> {
         ConfigError::ReadError(e)
     })?;
 
-    let config = parse_config(file_path, config_data).await.map_err(|e| {
+    let mut config = parse_config(file_path, config_data).await.map_err(|e| {
         project_error!("Failed to parse config file: {}", e);
         e
     })?;
+
+    // F1.1 + W-F4: 在 global::init_config 之前先做 secret hardening (_FILE precedence override
+    // + 對 jwt 做 strict validation),確保存入 global state 的值已經過 secret 處理。
+    secret_loader::apply_jwt_secret_hardening(&mut config.jwt);
+    secret_loader::apply_database_url_hardening(&mut config.database);
+    if let Some(ref mut redis_config) = config.redis {
+        secret_loader::apply_redis_url_hardening(redis_config);
+    }
 
     global::init_config::<Config>(config.clone()).await;
     global::init_config::<DatabaseConfig>(config.database).await;
@@ -64,10 +72,7 @@ pub async fn init_from_file(file_path: &str) -> Result<(), ConfigError> {
 
     global::init_config::<ServerConfig>(config.server).await;
 
-    // F1.1: _FILE precedence override + strict validation before storing JwtConfig
-    let mut jwt_config = config.jwt;
-    secret_loader::apply_jwt_secret_hardening(&mut jwt_config);
-    global::init_config::<JwtConfig>(jwt_config).await;
+    global::init_config::<JwtConfig>(config.jwt).await;
 
     if let Some(redis_config) = config.redis {
         global::init_config::<RedisConfig>(redis_config).await;
@@ -399,7 +404,15 @@ fn merge_s3_instances(
 /// 初始化全局配置状态
 ///
 /// 将配置注入到全局状态管理器中，供应用程序其他部分使用
-async fn init_global_config(config: Config) {
+async fn init_global_config(mut config: Config) {
+    // F1.1 + W-F4: 在 global::init_config 之前先做 secret hardening (_FILE precedence override
+    // + 對 jwt 做 strict validation),確保存入 global state 的值已經過 secret 處理。
+    secret_loader::apply_jwt_secret_hardening(&mut config.jwt);
+    secret_loader::apply_database_url_hardening(&mut config.database);
+    if let Some(ref mut redis_config) = config.redis {
+        secret_loader::apply_redis_url_hardening(redis_config);
+    }
+
     global::init_config::<Config>(config.clone()).await;
     global::init_config::<DatabaseConfig>(config.database).await;
 
@@ -410,10 +423,7 @@ async fn init_global_config(config: Config) {
 
     global::init_config::<ServerConfig>(config.server).await;
 
-    // F1.1: _FILE precedence override + strict validation before storing JwtConfig
-    let mut jwt_config = config.jwt;
-    secret_loader::apply_jwt_secret_hardening(&mut jwt_config);
-    global::init_config::<JwtConfig>(jwt_config).await;
+    global::init_config::<JwtConfig>(config.jwt).await;
 
     if let Some(redis_config) = config.redis {
         global::init_config::<RedisConfig>(redis_config).await;

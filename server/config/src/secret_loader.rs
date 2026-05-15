@@ -102,3 +102,143 @@ pub fn apply_jwt_secret_hardening(jwt: &mut crate::JwtConfig) {
     // Step 3: yaml default — already in jwt.jwt_secret, nothing to do
     validate_jwt_secret(&jwt.jwt_secret);
 }
+
+/// W-F4: apply DATABASE_URL hardening — `_FILE` precedence override.
+///
+/// Precedence:
+///   1. `APP_DATABASE_URL_FILE` (highest) — reads file via `load_secret_from_file_if_set`
+///   2. `APP_DATABASE_URL` (bare envvar) — populated by config-rs Environment source
+///      (no `_` separator ambiguity, yaml field 是 `database.url`,單 underscore)
+///   3. `application.yaml` database.url (lowest)
+///
+/// 不做 URL format validation;由 sea-orm connection pool init 階段 fail-fast (per R-011)。
+///
+/// per W-F4 spec FR-009, contracts C-S8, research R-001 + R-003。
+pub fn apply_database_url_hardening(database: &mut crate::DatabaseConfig) {
+    if let Some(url_from_file) = load_secret_from_file_if_set("APP_DATABASE_URL") {
+        database.url = url_from_file;
+    }
+    // bare APP_DATABASE_URL envvar 不需要顯式讀;config-rs Environment source 已處理
+    // (yaml `database.url` 與 env `APP_DATABASE_URL` 無 `_`-separator ambiguity)。
+    // yaml default 由原 config 物件 fallback。
+}
+
+/// W-F4: apply REDIS_URL hardening — `_FILE` precedence override (Option<String> 版)。
+///
+/// Precedence 同 `apply_database_url_hardening`,差別在 `RedisConfig.url` 是 `Option<String>`:
+///   - `_FILE` 命中 → `redis.url = Some(content)`
+///   - 否則保留原值 (config-rs envvar 或 yaml fallback)
+///
+/// 不做 URL format validation;由 redis client connect 階段 fail-fast (per R-011)。
+///
+/// per W-F4 spec FR-009, contracts C-S9, research R-001 + R-003。
+pub fn apply_redis_url_hardening(redis: &mut crate::RedisConfig) {
+    if let Some(url_from_file) = load_secret_from_file_if_set("APP_REDIS_URL") {
+        redis.url = Some(url_from_file);
+    }
+}
+
+// ============================================================
+// W-F4 unit tests (TDD)
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DatabaseConfig, RedisConfig, RedisMode};
+    use std::fs;
+    use std::path::PathBuf;
+
+    // env::set_var/remove_var 是 process-global mutable state;
+    // 在 cargo test 同 binary 多 thread 平行下不安全,用 Mutex 序列化所有觸碰 env 的測試。
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn make_database_config(url: &str) -> DatabaseConfig {
+        DatabaseConfig {
+            url: url.to_string(),
+            max_connections: 10,
+            min_connections: 1,
+            connect_timeout: 30,
+            idle_timeout: 600,
+        }
+    }
+
+    fn make_redis_config(url: Option<&str>) -> RedisConfig {
+        RedisConfig {
+            mode: RedisMode::Single,
+            url: url.map(|s| s.to_string()),
+            urls: None,
+        }
+    }
+
+    /// 在 std::env::temp_dir() 下建立唯一檔名的 tempfile 並寫入 content,返 path。
+    /// caller 須 cleanup (fs::remove_file)。
+    fn write_tempfile(unique_suffix: &str, content: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "wf4_secret_loader_test_{}_{}.txt",
+            unique_suffix,
+            std::process::id()
+        ));
+        fs::write(&path, content).expect("write tempfile");
+        path
+    }
+
+    #[test]
+    fn test_apply_database_url_hardening_from_file() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Arrange: tempfile 含 "postgres://from-file"; APP_DATABASE_URL_FILE 指向它
+        let tmp = write_tempfile("db_from_file", "postgres://from-file");
+        env::set_var("APP_DATABASE_URL_FILE", &tmp);
+        env::remove_var("APP_DATABASE_URL");
+
+        let mut database = make_database_config("yaml-default");
+
+        // Act
+        apply_database_url_hardening(&mut database);
+
+        // Assert: file value 蓋過 yaml default
+        assert_eq!(database.url, "postgres://from-file");
+
+        // Cleanup
+        env::remove_var("APP_DATABASE_URL_FILE");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_apply_database_url_hardening_no_file_keeps_url() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Arrange: 不設 APP_DATABASE_URL_FILE,helper 應該維持原 yaml default
+        env::remove_var("APP_DATABASE_URL_FILE");
+        env::remove_var("APP_DATABASE_URL");
+
+        let mut database = make_database_config("yaml-default");
+
+        // Act
+        apply_database_url_hardening(&mut database);
+
+        // Assert: 原值不動 (bare envvar fallback 是 config-rs 的責任,不是 helper 的)
+        assert_eq!(database.url, "yaml-default");
+    }
+
+    #[test]
+    fn test_apply_redis_url_hardening_from_file() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Arrange: tempfile 含 "redis://from-file:6379/0"; APP_REDIS_URL_FILE 指向它
+        let tmp = write_tempfile("redis_from_file", "redis://from-file:6379/0");
+        env::set_var("APP_REDIS_URL_FILE", &tmp);
+        env::remove_var("APP_REDIS_URL");
+
+        let mut redis = make_redis_config(Some("redis://yaml-default:6379/0"));
+
+        // Act
+        apply_redis_url_hardening(&mut redis);
+
+        // Assert: file value 蓋過 yaml default,且包成 Some()
+        assert_eq!(redis.url, Some("redis://from-file:6379/0".to_string()));
+
+        // Cleanup
+        env::remove_var("APP_REDIS_URL_FILE");
+        let _ = fs::remove_file(&tmp);
+    }
+}
