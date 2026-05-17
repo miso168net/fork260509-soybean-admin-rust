@@ -6,3 +6,4 @@ pub mod m20241024_034526_insert_sys_role;
 pub mod m20241024_034744_insert_sys_menu;
 pub mod m20241024_082926_insert_casbin_rule;
 pub mod m20260515_a_f51_minimum_seed;
+pub mod m20260518_a_f6_is_route_exist_seed;

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, PaginatorTrait,
+    QueryFilter, Set, TransactionTrait,
 };
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
@@ -51,6 +51,7 @@ pub trait TMenuService {
         role_id: String,
         domain: String,
     ) -> Result<Vec<i32>, AppError>;
+    async fn is_route_exist(&self, route_name: &str) -> Result<bool, AppError>;
 }
 
 #[derive(Clone)]
@@ -358,5 +359,16 @@ impl TMenuService for SysMenuService {
             .map_err(AppError::from)?;
 
         Ok(menus.iter().map(|menu| menu.id).collect())
+    }
+
+    async fn is_route_exist(&self, route_name: &str) -> Result<bool, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let count = sys_menu::find_active()
+            .filter(SysMenuColumn::RouteName.eq(route_name))
+            .filter(SysMenuColumn::Status.eq(Status::Enabled))
+            .count(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+        Ok(count > 0)
     }
 }

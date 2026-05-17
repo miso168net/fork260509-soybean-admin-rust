@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use axum::{extract::Path, Extension};
+use axum::{extract::{Path, Query}, Extension};
 use server_core::web::{audit::Actor, auth::User, error::AppError, res::Res, validator::ValidatedForm};
 use server_service::admin::{
-    CreateMenuInput, MenuRoute, MenuTree, SysMenuModel, SysMenuService, TMenuService,
-    UpdateMenuInput,
+    CreateMenuInput, IsRouteExistInput, MenuRoute, MenuTree, SysMenuModel, SysMenuService,
+    TMenuService, UpdateMenuInput,
 };
 
 pub struct SysMenuApi;
@@ -71,5 +71,12 @@ impl SysMenuApi {
             .get_menu_ids_by_role_id(role_id, user.domain())
             .await
             .map(Res::new_data)
+    }
+
+    pub async fn is_route_exist(
+        Extension(service): Extension<Arc<SysMenuService>>,
+        Query(input): Query<IsRouteExistInput>,
+    ) -> Result<Res<bool>, AppError> {
+        service.is_route_exist(&input.route_name).await.map(Res::new_data)
     }
 }

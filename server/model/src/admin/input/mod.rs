@@ -4,7 +4,7 @@ pub use sys_authorization::{AssignPermissionDto, AssignRouteDto, AssignUserDto};
 pub use sys_domain::{CreateDomainInput, DomainPageRequest, UpdateDomainInput};
 pub use sys_endpoint::EndpointPageRequest;
 pub use sys_login_log::LoginLogPageRequest;
-pub use sys_menu::{CreateMenuInput, UpdateMenuInput};
+pub use sys_menu::{CreateMenuInput, IsRouteExistInput, UpdateMenuInput};
 pub use sys_operation_log::OperationLogPageRequest;
 pub use sys_organization::OrganizationPageRequest;
 pub use sys_role::{CreateRoleInput, RolePageRequest, UpdateRoleInput};

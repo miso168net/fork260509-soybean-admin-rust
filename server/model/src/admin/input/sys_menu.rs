@@ -70,3 +70,10 @@ pub struct UpdateMenuInput {
     #[serde(flatten)]
     pub menu: MenuInput,
 }
+
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct IsRouteExistInput {
+    #[validate(length(min = 1))]
+    pub route_name: String,
+}

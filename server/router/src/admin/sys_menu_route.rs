@@ -56,6 +56,12 @@ impl SysMenuRouter {
                 "SysAuthenticationApi",
                 "获取用户路由",
             ),
+            RouteInfo::new(
+                &format!("{}/isRouteExist", base_path),
+                Method::GET,
+                service_name,
+                "查询路由是否存在",
+            ),
         ];
 
         for route in routes {
@@ -70,7 +76,8 @@ impl SysMenuRouter {
             .route("/", put(SysMenuApi::update_menu))
             .route("/{id}", delete(SysMenuApi::delete_menu))
             .route("/auth-route/{roleId}", get(SysMenuApi::get_auth_routes))
-            .route("/getUserRoutes", get(SysAuthenticationApi::get_user_routes));
+            .route("/getUserRoutes", get(SysAuthenticationApi::get_user_routes))
+            .route("/isRouteExist", get(SysMenuApi::is_route_exist));
 
         Router::new().nest(base_path, router)
     }
