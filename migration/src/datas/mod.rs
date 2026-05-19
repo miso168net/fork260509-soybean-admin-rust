@@ -8,3 +8,4 @@ pub mod m20241024_082926_insert_casbin_rule;
 pub mod m20260515_a_f51_minimum_seed;
 pub mod m20260518_a_f6_is_route_exist_seed;
 pub mod m20260519_a_f11_extracted_stubs_seed;
+pub mod m20260520_a_f9_system_manage_alias_seed;

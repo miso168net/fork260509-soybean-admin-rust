@@ -58,4 +58,12 @@ impl SysRoleApi {
         let actor = Actor::from(&user);
         service.delete_role(&id, &actor).await.map(Res::new_data)
     }
+
+    // F9 systemManage-alias-router: GET /systemManage/getAllRoles
+    // 取所有 enabled + active 角色（無分頁），base-web role-select 下拉用
+    pub async fn get_all_roles(
+        Extension(service): Extension<Arc<SysRoleService>>,
+    ) -> Result<Res<Vec<SysRoleModel>>, AppError> {
+        service.find_all_enabled().await.map(Res::new_data)
+    }
 }

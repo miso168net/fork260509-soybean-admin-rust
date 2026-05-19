@@ -12,6 +12,7 @@ use server_core::web::{
 use server_model::admin::{
     audit_log,
     audit_serialize::audit_snapshot,
+    entities::sea_orm_active_enums::Status,
     facade::sys_role::{
         self, ActiveModel as SysRoleActiveModel, Column as SysRoleColumn, Model as SysRoleModel,
     },
@@ -41,6 +42,9 @@ pub trait TRoleService {
         actor: &Actor,
     ) -> Result<SysRoleModel, AppError>;
     async fn delete_role(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
+
+    // F9 systemManage-alias-router: 取所有 enabled + active 角色（無分頁），供 /systemManage/getAllRoles 使用
+    async fn find_all_enabled(&self) -> Result<Vec<SysRoleModel>, AppError>;
 }
 
 #[derive(Clone)]
@@ -211,5 +215,16 @@ impl TRoleService for SysRoleService {
     async fn delete_role(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
         sys_role::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await
+    }
+
+    // F9 systemManage-alias-router: 取所有 enabled + active 角色（沿用 sys_role::find_active() facade、
+    // status filter 對齊 sys_menu_service 既有 Status::Enabled 慣用 pattern）
+    async fn find_all_enabled(&self) -> Result<Vec<SysRoleModel>, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        sys_role::find_active()
+            .filter(SysRoleColumn::Status.eq(Status::Enabled))
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)
     }
 }

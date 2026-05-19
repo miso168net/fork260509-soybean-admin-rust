@@ -46,6 +46,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260518_a_f6_is_route_exist_seed::Migration),
             // F11 extracted-stubs: 4 條 stub endpoint Casbin policy seed
             Box::new(datas::m20260519_a_f11_extracted_stubs_seed::Migration),
+            // F9 systemManage-alias-router: 10 條 alias endpoint Casbin policy seed(20 row)
+            Box::new(datas::m20260520_a_f9_system_manage_alias_seed::Migration),
         ]
     }
 }

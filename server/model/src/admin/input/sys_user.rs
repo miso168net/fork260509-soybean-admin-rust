@@ -51,3 +51,18 @@ pub struct UpdateUserInput {
     #[serde(flatten)]
     pub user: UserInput,
 }
+
+// F9 systemManage-alias-router: DELETE /systemManage/deleteUser body-id payload
+// per F9 spec FR-018 — 不加 validator::Validate derive（沿用既有 delete_user service 自有 id 檢查）
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteUserByBodyInput {
+    pub id: String,
+}
+
+// F9 systemManage-alias-router: DELETE /systemManage/batchDeleteUser payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDeleteUserInput {
+    pub ids: Vec<String>,
+}

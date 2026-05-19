@@ -16,7 +16,7 @@ use server_middleware::jwt_auth_middleware;
 use server_router::admin::{
     SysAccessKeyRouter, SysAuthenticationRouter, SysDomainRouter, SysEndpointRouter,
     SysLoginLogRouter, SysMenuRouter, SysMockRouter, SysOperationLogRouter, SysOrganizationRouter,
-    SysRoleRouter, SysSandboxRouter, SysUserRouter,
+    SysRoleRouter, SysSandboxRouter, SysSystemManageRouter, SysUserRouter,
 };
 use server_service::{
     admin::{
@@ -328,6 +328,26 @@ pub async fn initialize_admin_router() -> Router {
         true,
         None
     );
+
+    // F9 systemManage-alias-router: 10 條 /systemManage/* alias router
+    // JWT auth + Casbin enforce、需注入 3 個 service(SysUserService / SysRoleService / SysMenuService)
+    // — merge_router! 單 service 注入不夠，沿用 init_authorization_router 手動 layer 多服務 pattern
+    let system_manage_router = SysSystemManageRouter::init_router()
+        .await
+        .layer(Extension(Arc::new(SysUserService) as Arc<SysUserService>))
+        .layer(Extension(Arc::new(SysRoleService) as Arc<SysRoleService>))
+        .layer(Extension(Arc::new(SysMenuService) as Arc<SysMenuService>));
+    let system_manage_router = apply_layers(
+        system_manage_router,
+        Services::None(std::marker::PhantomData::<()>),
+        true,
+        true,
+        None,
+        casbin.clone(),
+        audience,
+    )
+    .await;
+    app = app.merge(system_manage_router);
 
     // W-F1 T020: public /health route — bypasses jwt/casbin/api-key middleware
     // and apply_layers TraceLayer (silent log per FR-015).

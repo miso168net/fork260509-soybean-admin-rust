@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, PaginatorTrait,
-    QueryFilter, Set, TransactionTrait,
+    QueryFilter, QuerySelect, Set, TransactionTrait,
 };
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
@@ -52,6 +52,9 @@ pub trait TMenuService {
         domain: String,
     ) -> Result<Vec<i32>, AppError>;
     async fn is_route_exist(&self, route_name: &str) -> Result<bool, AppError>;
+
+    // F9 systemManage-alias-router: 取所有 sys_menu 的 route_name (page key、distinct、active rows)
+    async fn find_all_page_keys(&self) -> Result<Vec<String>, AppError>;
 }
 
 #[derive(Clone)]
@@ -370,5 +373,21 @@ impl TMenuService for SysMenuService {
             .await
             .map_err(AppError::from)?;
         Ok(count > 0)
+    }
+
+    // F9 systemManage-alias-router: SELECT DISTINCT route_name FROM sys_menu WHERE deleted_at IS NULL
+    // 沿用 sys_menu::find_active() facade（自動加 deleted_at IS NULL）
+    // route_name 為 page key 概念（既有 is_route_exist 已用同一 column 作為 page 唯一識別）
+    async fn find_all_page_keys(&self) -> Result<Vec<String>, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        sys_menu::find_active()
+            .select_only()
+            .column(SysMenuColumn::RouteName)
+            .distinct()
+            .into_tuple::<(String,)>()
+            .all(db.as_ref())
+            .await
+            .map(|rows| rows.into_iter().map(|(name,)| name).collect())
+            .map_err(AppError::from)
     }
 }

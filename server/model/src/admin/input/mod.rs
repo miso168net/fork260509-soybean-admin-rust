@@ -8,7 +8,9 @@ pub use sys_menu::{CreateMenuInput, IsRouteExistInput, UpdateMenuInput};
 pub use sys_operation_log::OperationLogPageRequest;
 pub use sys_organization::OrganizationPageRequest;
 pub use sys_role::{CreateRoleInput, RolePageRequest, UpdateRoleInput};
-pub use sys_user::{CreateUserInput, UpdateUserInput, UserPageRequest};
+pub use sys_user::{
+    BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, UpdateUserInput, UserPageRequest,
+};
 
 mod sys_access_key;
 mod sys_authentication;

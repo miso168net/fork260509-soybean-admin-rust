@@ -79,4 +79,12 @@ impl SysMenuApi {
     ) -> Result<Res<bool>, AppError> {
         service.is_route_exist(&input.route_name).await.map(Res::new_data)
     }
+
+    // F9 systemManage-alias-router: GET /systemManage/getAllPages
+    // 回 sys_menu route_name list (distinct + active rows)、base-web menu page binding 下拉用
+    pub async fn get_all_pages(
+        Extension(service): Extension<Arc<SysMenuService>>,
+    ) -> Result<Res<Vec<String>>, AppError> {
+        service.find_all_page_keys().await.map(Res::new_data)
+    }
 }
