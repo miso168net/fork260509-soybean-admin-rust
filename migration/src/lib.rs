@@ -44,6 +44,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260515_a_f51_minimum_seed::Migration),
             // F6 route-guard: isRouteExist Casbin policy seed
             Box::new(datas::m20260518_a_f6_is_route_exist_seed::Migration),
+            // F11 extracted-stubs: 4 條 stub endpoint Casbin policy seed
+            Box::new(datas::m20260519_a_f11_extracted_stubs_seed::Migration),
         ]
     }
 }

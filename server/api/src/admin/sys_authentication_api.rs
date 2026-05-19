@@ -1,16 +1,21 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use axum::{extract::ConnectInfo, http::HeaderMap, Extension};
+use axum::{
+    extract::{ConnectInfo, Query},
+    http::HeaderMap,
+    Extension, Json,
+};
 use axum_casbin::CasbinAxumLayer;
 use axum_extra::{headers::UserAgent, TypedHeader};
+use serde_json::json;
 use server_core::web::{
     auth::User, error::AppError, res::Res, util::ClientIp, validator::ValidatedForm, RequestId,
 };
 use server_service::{
     admin::{
-        dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AuthOutput,
-        LoginInput, SysAuthService, SysAuthorizationService, TAuthService, TAuthorizationService,
-        UserInfoOutput, UserRoute,
+        dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AuthErrorQuery,
+        AuthOutput, LoginInput, SendCaptchaInput, SysAuthService, SysAuthorizationService,
+        TAuthService, TAuthorizationService, UserInfoOutput, UserRoute, VerifyCaptchaInput,
     },
     Audience,
 };
@@ -108,5 +113,29 @@ impl SysAuthenticationApi {
             .await?;
 
         Ok(Res::new_data(()))
+    }
+
+    // F11 extracted-stubs: 3 個 stub handler(per spec FR-001 / FR-002 / FR-003）
+    pub async fn send_captcha(
+        Json(input): Json<SendCaptchaInput>,
+    ) -> Result<Res<serde_json::Value>, AppError> {
+        tracing::info!(phone = %input.phone, "F11 stub: sendCaptcha called");
+        Ok(Res::new_data(json!({ "code": "000000" })))
+    }
+
+    pub async fn verify_captcha(
+        Json(input): Json<VerifyCaptchaInput>,
+    ) -> Result<Res<serde_json::Value>, AppError> {
+        let verified = input.code == "000000";
+        Ok(Res::new_data(json!({ "verified": verified })))
+    }
+
+    pub async fn auth_error(
+        Query(q): Query<AuthErrorQuery>,
+    ) -> Result<Res<serde_json::Value>, AppError> {
+        Ok(Res::new_data(json!({
+            "code": q.code.unwrap_or_default(),
+            "msg":  q.msg.unwrap_or_default(),
+        })))
     }
 }

@@ -15,8 +15,8 @@ use server_global::global::{clear_routes, get_collected_routes, get_config};
 use server_middleware::jwt_auth_middleware;
 use server_router::admin::{
     SysAccessKeyRouter, SysAuthenticationRouter, SysDomainRouter, SysEndpointRouter,
-    SysLoginLogRouter, SysMenuRouter, SysOperationLogRouter, SysOrganizationRouter, SysRoleRouter,
-    SysSandboxRouter, SysUserRouter,
+    SysLoginLogRouter, SysMenuRouter, SysMockRouter, SysOperationLogRouter, SysOrganizationRouter,
+    SysRoleRouter, SysSandboxRouter, SysUserRouter,
 };
 use server_service::{
     admin::{
@@ -220,10 +220,12 @@ pub async fn initialize_admin_router() -> Router {
 
     app = app.merge(auth_router);
 
+    // F11 extracted-stubs: init_protected_router 加 Casbin enforce（per spec FR-005/006 + US2、
+    // /auth/getUserInfo F5.1 既有 3-role allow seed、F11 3 個 stub 由 m20260519 migration 補 2-role allow）
     merge_router!(
         SysAuthenticationRouter::init_protected_router().await,
         SysAuthService,
-        false,
+        true,
         true,
         None
     );
@@ -316,6 +318,15 @@ pub async fn initialize_admin_router() -> Router {
         false,
         false,
         Some(complex_validation)
+    );
+
+    // F11 extracted-stubs: mock stub(JWT auth + Casbin enforce、無 service / 無 API key validator)
+    merge_router!(
+        SysMockRouter::init_mock_router().await,
+        None,
+        true,
+        true,
+        None
     );
 
     // W-F1 T020: public /health route — bypasses jwt/casbin/api-key middleware

@@ -14,3 +14,7 @@ xdb = { path = "../../xdb" }
 axum = { workspace = true, features = ["http1", "query", "json", "multipart"] }
 axum-extra = { workspace = true, features = ["typed-header"] }
 headers = { workspace = true }
+# F11 extracted-stubs: 4 條 stub endpoint(serde_json::json! / tracing::info! / chrono::Utc）
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
