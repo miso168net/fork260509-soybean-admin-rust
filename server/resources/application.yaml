@@ -14,6 +14,8 @@ jwt:
     jwt_secret: "change-me-jwt-secret"
     issuer: "https://github.com/ByteByteBrew/soybean-admin-rust"
     expire: 7200
+    refresh_secret: "change-me-refresh-secret-padded!"
+    refresh_expire: 7200
 redis:
     mode: single
     url: "redis://:123456@redis:6379/10"

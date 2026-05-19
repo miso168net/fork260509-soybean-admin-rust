@@ -97,6 +97,7 @@ impl Keys {
 }
 
 pub static KEYS: OnceCell<Arc<Mutex<Keys>>> = OnceCell::const_new();
+pub static REFRESH_KEYS: OnceCell<Arc<Mutex<Keys>>> = OnceCell::const_new();
 pub static VALIDATION: OnceCell<Arc<Mutex<Validation>>> = OnceCell::const_new();
 
 //*****************************************************************************

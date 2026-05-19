@@ -2,11 +2,56 @@ use std::{error::Error, fmt};
 
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Header, TokenData};
+use serde::{Deserialize, Serialize};
 use server_config::JwtConfig;
 use server_global::global;
 use ulid::Ulid;
 
 use crate::web::auth::Claims;
+
+/// F10.1: Refresh token claims struct (極簡 HS256 JWT、per data-model §E1)
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RefreshClaims {
+    sub: String,
+    exp: Option<usize>,
+    iat: Option<usize>,
+    nbf: Option<usize>,
+    jti: Option<String>,
+    iss: Option<String>,
+}
+
+impl RefreshClaims {
+    pub fn new(sub: String) -> Self {
+        Self {
+            sub,
+            exp: None,
+            iat: None,
+            nbf: None,
+            jti: None,
+            iss: None,
+        }
+    }
+
+    pub fn set_exp(&mut self, exp: usize) {
+        self.exp = Some(exp);
+    }
+
+    pub fn set_iss(&mut self, iss: String) {
+        self.iss = Some(iss);
+    }
+
+    pub fn set_iat(&mut self, iat: usize) {
+        self.iat = Some(iat);
+    }
+
+    pub fn set_nbf(&mut self, nbf: usize) {
+        self.nbf = Some(nbf);
+    }
+
+    pub fn set_jti(&mut self, jti: String) {
+        self.jti = Some(jti);
+    }
+}
 
 // pub static KEYS: Lazy<Arc<Mutex<Keys>>> = Lazy::new(|| {
 //     let config = global::get_config::<JwtConfig>()
@@ -73,6 +118,38 @@ impl JwtUtils {
         token
     }
 
+    /// F10.1: 生成 HS256 refresh token（signed JWT、per data-model §E1）
+    pub async fn generate_refresh_token(user_id: String) -> Result<String, JwtError> {
+        let keys_arc = global::REFRESH_KEYS.get().ok_or(JwtError::KeysNotInitialized)?;
+        let keys = keys_arc.lock().await;
+
+        let jwt_config = global::get_config::<JwtConfig>().await.unwrap();
+
+        Self::sign_refresh_claims(user_id, jwt_config.refresh_expire, &jwt_config.issuer, &keys.encoding)
+    }
+
+    /// Pure inner helper: 接受 encoding key + expire + issuer，不依賴 global state。
+    /// 讓單元測試可直接注入 key、避免 OnceCell 初始化競爭。
+    fn sign_refresh_claims(
+        user_id: String,
+        refresh_expire: i64,
+        issuer: &str,
+        encoding_key: &jsonwebtoken::EncodingKey,
+    ) -> Result<String, JwtError> {
+        let now = Utc::now();
+        let timestamp = now.timestamp() as usize;
+
+        let mut claims = RefreshClaims::new(user_id);
+        claims.set_exp((now + Duration::seconds(refresh_expire)).timestamp() as usize);
+        claims.set_iss(issuer.to_string());
+        claims.set_iat(timestamp);
+        claims.set_nbf(timestamp);
+        claims.set_jti(Ulid::new().to_string());
+
+        encode(&Header::default(), &claims, encoding_key)
+            .map_err(|e| JwtError::TokenCreationError(e.to_string()))
+    }
+
     pub async fn validate_token(
         token: &str,
         audience: &str,
@@ -89,5 +166,54 @@ impl JwtUtils {
         validation_clone.set_audience(&[audience.to_string()]);
         decode::<Claims>(token, &keys.decoding, &validation_clone)
             .map_err(|e| JwtError::TokenValidationError(e.to_string()))
+    }
+}
+
+// ============================================================
+// F10.1 unit tests (TDD — T029)
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Validation};
+
+    use super::*;
+
+    const TEST_SECRET: &str = "test-refresh-secret-padded-32char!";
+    const TEST_ISSUER: &str = "https://test.example.com";
+    const TEST_EXPIRE: i64 = 7200;
+
+    #[test]
+    fn test_generate_refresh_token_signs_valid_hs256_jwt_with_refresh_claims() {
+        // Arrange: pure encoding key — no global state needed
+        let encoding_key = EncodingKey::from_secret(TEST_SECRET.as_bytes());
+
+        // Act: call pure helper directly
+        let token =
+            JwtUtils::sign_refresh_claims("test-user-id".to_string(), TEST_EXPIRE, TEST_ISSUER, &encoding_key)
+                .expect("sign_refresh_claims should succeed");
+
+        // Assert shape: 2 dots (header.payload.signature)
+        let dot_count = token.chars().filter(|&c| c == '.').count();
+        assert_eq!(dot_count, 2, "JWT must have exactly 2 dots");
+        assert!(token.len() > 100, "JWT length should be > 100 chars");
+
+        // Assert decoded claims
+        let decoding_key = DecodingKey::from_secret(TEST_SECRET.as_bytes());
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_issuer(&[TEST_ISSUER]);
+        validation.validate_nbf = true;
+        // RefreshClaims has no aud field — disable audience validation
+        validation.validate_aud = false;
+
+        let token_data = jsonwebtoken::decode::<RefreshClaims>(&token, &decoding_key, &validation)
+            .expect("JWT must decode successfully with the same secret");
+
+        let claims = token_data.claims;
+        assert_eq!(claims.sub, "test-user-id", "sub must match user_id");
+        assert!(claims.exp.is_some(), "exp must be set");
+        assert!(claims.iat.is_some(), "iat must be set");
+        assert!(claims.nbf.is_some(), "nbf must be set");
+        assert!(claims.jti.is_some(), "jti must be set");
     }
 }

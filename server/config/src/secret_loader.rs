@@ -101,6 +101,22 @@ pub fn apply_jwt_secret_hardening(jwt: &mut crate::JwtConfig) {
     }
     // Step 3: yaml default — already in jwt.jwt_secret, nothing to do
     validate_jwt_secret(&jwt.jwt_secret);
+
+    // F10.1: refresh_secret hardening
+    // Precedence: APP_JWT_REFRESH_SECRET_FILE > APP_JWT_REFRESH_SECRET > yaml default
+    // Empty-file → fallback to jwt_secret (mirrors nestjs entrypoint `${RTS:-$JWT_SECRET}`)
+    if let Some(content_from_file) = load_secret_from_file_if_set("APP_JWT_REFRESH_SECRET") {
+        if content_from_file.is_empty() {
+            // Empty file → fallback to jwt_secret
+            jwt.refresh_secret = jwt.jwt_secret.clone();
+        } else {
+            jwt.refresh_secret = content_from_file;
+        }
+    } else if let Ok(bare) = env::var("APP_JWT_REFRESH_SECRET") {
+        jwt.refresh_secret = bare;
+    }
+    // else: yaml default already in jwt.refresh_secret
+    validate_jwt_secret(&jwt.refresh_secret);
 }
 
 /// W-F4: apply DATABASE_URL hardening — `_FILE` precedence override.
@@ -145,7 +161,7 @@ pub fn apply_redis_url_hardening(redis: &mut crate::RedisConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DatabaseConfig, RedisConfig, RedisMode};
+    use crate::{DatabaseConfig, JwtConfig, RedisConfig, RedisMode};
     use std::fs;
     use std::path::PathBuf;
 
@@ -219,6 +235,76 @@ mod tests {
 
         // Assert: 原值不動 (bare envvar fallback 是 config-rs 的責任,不是 helper 的)
         assert_eq!(database.url, "yaml-default");
+    }
+
+    fn make_jwt_config(jwt_secret: &str, refresh_secret: &str) -> JwtConfig {
+        JwtConfig {
+            jwt_secret: jwt_secret.to_string(),
+            issuer: "https://test.example.com".to_string(),
+            expire: 7200,
+            refresh_secret: refresh_secret.to_string(),
+            refresh_expire: 7200,
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // F10.1 tests (T023)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn test_apply_jwt_refresh_secret_empty_file_fallback_to_jwt_secret() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Arrange: empty tempfile (simulates dev default empty Docker secret)
+        let tmp = write_tempfile("refresh_empty_fallback", "");
+        env::set_var("APP_JWT_REFRESH_SECRET_FILE", &tmp);
+        env::remove_var("APP_JWT_REFRESH_SECRET");
+        // Unset the jwt_secret _FILE so it does not interfere
+        env::remove_var("APP_JWT_JWT_SECRET_FILE");
+        env::remove_var("APP_JWT_JWT_SECRET");
+
+        let jwt_secret = "valid-jwt-secret-padded-to-32chars!";
+        let mut jwt = make_jwt_config(jwt_secret, "placeholder-refresh-secret-xyz!");
+
+        // Act
+        apply_jwt_secret_hardening(&mut jwt);
+
+        // Assert: empty file → fallback to jwt_secret
+        assert_eq!(
+            jwt.refresh_secret, jwt_secret,
+            "empty refresh secret file must fallback to jwt_secret"
+        );
+
+        // Cleanup
+        env::remove_var("APP_JWT_REFRESH_SECRET_FILE");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn test_apply_jwt_refresh_secret_non_empty_file_uses_content() {
+        let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        // Arrange: non-empty tempfile with a valid 32+ char secret
+        let refresh_content = "real-refresh-secret-padded-32chr!";
+        let tmp = write_tempfile("refresh_non_empty", refresh_content);
+        env::set_var("APP_JWT_REFRESH_SECRET_FILE", &tmp);
+        env::remove_var("APP_JWT_REFRESH_SECRET");
+        env::remove_var("APP_JWT_JWT_SECRET_FILE");
+        env::remove_var("APP_JWT_JWT_SECRET");
+
+        let jwt_secret = "valid-jwt-secret-padded-to-32chars!";
+        let mut jwt = make_jwt_config(jwt_secret, "placeholder-refresh-secret-xyz!");
+
+        // Act
+        apply_jwt_secret_hardening(&mut jwt);
+
+        // Assert: non-empty file content is used directly
+        assert_eq!(
+            jwt.refresh_secret, refresh_content,
+            "non-empty refresh secret file must be used as refresh_secret"
+        );
+
+        // Cleanup
+        env::remove_var("APP_JWT_REFRESH_SECRET_FILE");
+        let _ = fs::remove_file(&tmp);
     }
 
     #[test]

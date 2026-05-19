@@ -12,6 +12,8 @@ jwt:
     jwt_secret: "dev-test-secret-padded-to-thirty-two!"
     issuer: "https://github.com/ByteByteBrew/soybean-admin-rust"
     expire: 7200
+    refresh_secret: "dev-test-refresh-secret-padded-32!"
+    refresh_expire: 7200
 redis:
     mode: single
     url: "redis://:123456@localhost:6379/2"

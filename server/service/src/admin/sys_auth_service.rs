@@ -31,8 +31,6 @@ use server_utils::{SecureUtil, TreeBuilder};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{error, instrument};
-use ulid::Ulid;
-
 use super::{
     dto::sys_auth_dto::LoginContext, event_handlers::auth_event_handler::AuthEventHandler,
 };
@@ -342,6 +340,8 @@ pub async fn generate_auth_output(
     organization_name: Option<String>,
     audience: Audience,
 ) -> Result<AuthOutput, JwtError> {
+    // Clone user_id before it is moved into Claims::new (F10.1 T028)
+    let user_id_for_refresh = user_id.clone();
     let claims = Claims::new(
         user_id,
         audience.as_str().to_string(),
@@ -355,7 +355,7 @@ pub async fn generate_auth_output(
 
     Ok(AuthOutput {
         token,
-        refresh_token: Ulid::new().to_string(),
+        refresh_token: JwtUtils::generate_refresh_token(user_id_for_refresh).await?,
     })
 }
 

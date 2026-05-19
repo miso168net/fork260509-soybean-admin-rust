@@ -20,6 +20,12 @@ pub async fn initialize_keys_and_validation() {
         project_error!("Failed to set KEYS");
     }
 
+    // F10.1: init REFRESH_KEYS — uses refresh_secret (with empty-file fallback to jwt_secret)
+    let refresh_keys = global::Keys::new(jwt_config.refresh_secret.as_bytes());
+    if global::REFRESH_KEYS.set(Arc::new(Mutex::new(refresh_keys))).is_err() {
+        project_error!("Failed to set REFRESH_KEYS");
+    }
+
     let mut validation = Validation::default();
     validation.leeway = 60;
     validation.set_issuer(&[&jwt_config.issuer]);

@@ -27,4 +27,10 @@ pub struct JwtConfig {
 
     /// JWT 過期時間（秒；envvar `APP_JWT_EXPIRE`）
     pub expire: i64,
+
+    /// Refresh token 密鑰（envvar `APP_JWT_REFRESH_SECRET_FILE`；空檔 fallback 到 jwt_secret）
+    pub refresh_secret: String,
+
+    /// Refresh token 過期時間（秒；envvar `APP_JWT_REFRESH_EXPIRE`）
+    pub refresh_expire: i64,
 }
