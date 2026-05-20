@@ -238,13 +238,26 @@ pub async fn initialize_admin_router() -> Router {
         None
     );
 
-    merge_router!(
-        SysMenuRouter::init_protected_menu_router().await,
-        SysMenuService,
+    // F5.1 wiring fix(per INTEGRATION-CHECKLIST §1 ⚠️ disclaimer):
+    // init_protected_menu_router mount 含 /getUserRoutes(handler =
+    // SysAuthenticationApi::get_user_routes、期 Extension<Arc<SysAuthService>>)。
+    // 原 merge_router! 只注入 SysMenuService 致 HTTP 500「Missing request extension」。
+    // 改 F9 R-③ 多 service manual layer pattern(對齊 init_authorization_router)。
+    let protected_menu_router = SysMenuRouter::init_protected_menu_router()
+        .await
+        .layer(Extension(Arc::new(SysMenuService) as Arc<SysMenuService>))
+        .layer(Extension(Arc::new(SysAuthService) as Arc<SysAuthService>));
+    let protected_menu_router = apply_layers(
+        protected_menu_router,
+        Services::None(std::marker::PhantomData::<()>),
         true,
         true,
-        None
-    );
+        None,
+        casbin.clone(),
+        audience,
+    )
+    .await;
+    app = app.merge(protected_menu_router);
 
     merge_router!(
         SysUserRouter::init_user_router().await,

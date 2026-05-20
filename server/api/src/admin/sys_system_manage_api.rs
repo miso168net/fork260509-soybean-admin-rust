@@ -54,9 +54,19 @@ impl SysSystemManageApi {
     /// F7 alias: GET /systemManage/getMenuList/v2
     pub async fn list_menu_for_systemmanage(
         Extension(service): Extension<Arc<SysMenuService>>,
-    ) -> Result<Res<Vec<SystemManageMenuOutput>>, AppError> {
+    ) -> Result<Res<PaginatedData<SystemManageMenuOutput>>, AppError> {
+        // F7 follow-up: base-web `Api.SystemManage.MenuList = PaginatingQueryRecord<Menu>`
+        // 預期 paginated 包裝。F7 原 wrapper 回扁平 array、base view 顯示「无数据」。
+        // 改為 paginated envelope:size=total=records.len()(rust 端不分頁、一次回全)。
         let raw = service.get_menu_list().await?;
-        Ok(Res::new_data(raw.into_iter().map(Into::into).collect()))
+        let records: Vec<SystemManageMenuOutput> = raw.into_iter().map(Into::into).collect();
+        let total = records.len() as u64;
+        Ok(Res::new_data(PaginatedData {
+            current: 1,
+            size: total,
+            total,
+            records,
+        }))
     }
 
     /// F7 alias: GET /systemManage/getMenuTree
