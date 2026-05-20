@@ -50,6 +50,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260520_a_f9_system_manage_alias_seed::Migration),
             // F7 manage-crud-alignment: ROLE_ADMIN 對既有 /user/* /role/* /route/* path 15 row Casbin policy seed
             Box::new(datas::m20260521_a_f7_admin_role_existing_paths_seed::Migration),
+            // F8 assign-users: ROLE_SUPER 對 /authorization/assign-users POST 1 row Casbin policy seed
+            Box::new(datas::m20260522_a_f8_assign_users_seed::Migration),
         ]
     }
 }

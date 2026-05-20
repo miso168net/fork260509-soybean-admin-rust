@@ -13,9 +13,10 @@ use server_core::web::{
 };
 use server_service::{
     admin::{
-        dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AuthErrorQuery,
-        AuthOutput, LoginInput, SendCaptchaInput, SysAuthService, SysAuthorizationService,
-        TAuthService, TAuthorizationService, UserInfoOutput, UserRoute, VerifyCaptchaInput,
+        dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AssignUserDto,
+        AuthErrorQuery, AuthOutput, LoginInput, SendCaptchaInput, SysAuthService,
+        SysAuthorizationService, TAuthService, TAuthorizationService, UserInfoOutput, UserRoute,
+        VerifyCaptchaInput,
     },
     Audience,
 };
@@ -113,6 +114,19 @@ impl SysAuthenticationApi {
             .assign_routes(input.domain, input.role_id, input.route_ids)
             .await?;
 
+        Ok(Res::new_data(()))
+    }
+
+    /// 为角色分配用户
+    ///
+    /// 将指定的用户分配给指定角色。
+    pub async fn assign_users(
+        Extension(service): Extension<Arc<SysAuthorizationService>>,
+        ValidatedForm(input): ValidatedForm<AssignUserDto>,
+    ) -> Result<Res<()>, AppError> {
+        service
+            .assign_users(input.role_id, input.user_ids)
+            .await?;
         Ok(Res::new_data(()))
     }
 

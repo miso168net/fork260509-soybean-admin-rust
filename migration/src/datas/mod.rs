@@ -10,3 +10,4 @@ pub mod m20260518_a_f6_is_route_exist_seed;
 pub mod m20260519_a_f11_extracted_stubs_seed;
 pub mod m20260520_a_f9_system_manage_alias_seed;
 pub mod m20260521_a_f7_admin_role_existing_paths_seed;
+pub mod m20260522_a_f8_assign_users_seed;

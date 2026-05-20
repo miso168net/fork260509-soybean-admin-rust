@@ -77,6 +77,12 @@ impl SysAuthenticationRouter {
                 service_name,
                 "分配路由",
             ),
+            RouteInfo::new(
+                &format!("{}/assign-users", base_path),
+                Method::POST,
+                service_name,
+                "分配用户",
+            ),
         ];
 
         for route in routes {
@@ -89,7 +95,8 @@ impl SysAuthenticationRouter {
                 "/assign-permission",
                 post(SysAuthenticationApi::assign_permission),
             )
-            .route("/assign-routes", post(SysAuthenticationApi::assign_routes));
+            .route("/assign-routes", post(SysAuthenticationApi::assign_routes))
+            .route("/assign-users", post(SysAuthenticationApi::assign_users));
 
         Router::new().nest(base_path, authorization_router)
     }
