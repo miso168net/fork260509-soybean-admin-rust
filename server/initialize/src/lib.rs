@@ -1,6 +1,7 @@
 pub use access_key_initialization::initialize_access_key;
 pub use aws_s3_initialization::{init_primary_s3, init_s3_pools};
 pub use casbin_initialization::initialize_casbin;
+pub use casbin_sync_initialization::spawn_casbin_sync_subscriber;
 pub use config_initialization::{
     initialize_config, initialize_config_from_env_only, initialize_config_with_env,
     initialize_config_with_multi_instance_env,
@@ -19,6 +20,7 @@ pub use server_initialization::get_server_address;
 mod access_key_initialization;
 mod aws_s3_initialization;
 mod casbin_initialization;
+mod casbin_sync_initialization;
 mod config_initialization;
 mod db_initialization;
 mod event_channel_initialization;

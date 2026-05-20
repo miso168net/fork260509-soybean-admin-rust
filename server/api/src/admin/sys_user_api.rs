@@ -10,6 +10,7 @@ use server_core::web::{
     audit::Actor, auth::User, error::AppError, page::PaginatedData, res::Res,
     validator::ValidatedForm,
 };
+use server_global::notify_casbin_changed;
 use server_service::admin::{
     BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, SysUserService, TUserService,
     UpdateUserInput, UserPageRequest, UserWithoutPassword,
@@ -48,6 +49,7 @@ impl SysUserApi {
             "GET".to_string(),
         ];
         let _ = enforcer_write.remove_policies(vec![rule]).await;
+        notify_casbin_changed().await;
         Res::new_data(true)
     }
 
@@ -63,6 +65,7 @@ impl SysUserApi {
             "GET".to_string(),
         ];
         let _ = enforcer_write.add_policy(rule).await;
+        notify_casbin_changed().await;
         Res::new_data(true)
     }
 

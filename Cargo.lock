@@ -5010,6 +5010,7 @@ dependencies = [
  "headers",
  "serde_json",
  "server-core",
+ "server-global",
  "server-service",
  "tracing",
  "xdb",

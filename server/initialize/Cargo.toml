@@ -18,7 +18,8 @@ sea-orm-adapter = { path = "../../sea-orm-adapter" }
 xdb = { path = "../../xdb" }
 
 log = { workspace = true }
-casbin = { workspace = true }
+casbin = { workspace = true, features = ["cached"] }
+futures = { workspace = true }
 sea-orm = { workspace = true, features = ["runtime-tokio-native-tls", "macros"] }
 axum = { workspace = true, features = ["http1", "json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
@@ -39,7 +40,6 @@ aws-sdk-s3 = { workspace = true }
 [dev-dependencies]
 axum-test-helpers = { workspace = true }            # 不兼容axum0.8.x
 tower = { workspace = true, features = ["full"] }
-futures = { workspace = true }
 http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }

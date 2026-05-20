@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use axum_casbin::casbin::{CoreApi, MgmtApi, RbacApi};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use server_core::web::error::AppError;
+use server_global::notify_casbin_changed;
 use server_model::admin::{
     entities::{
         prelude::{SysRoleMenu, SysUserRole},
@@ -186,6 +187,8 @@ impl SysAuthorizationService {
                     message: e.to_string(),
                 })?;
         }
+
+        notify_casbin_changed().await;
 
         Ok(())
     }
