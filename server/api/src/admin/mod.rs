@@ -9,6 +9,7 @@ pub use sys_operation_log_api::SysOperationLogApi;
 pub use sys_organization_api::SysOrganizationApi;
 pub use sys_role_api::SysRoleApi;
 pub use sys_sandbox_api::SysSandboxApi;
+pub use sys_system_manage_api::SysSystemManageApi;
 pub use sys_user_api::SysUserApi;
 
 mod sys_access_key_api;
@@ -22,4 +23,5 @@ mod sys_operation_log_api;
 mod sys_organization_api;
 mod sys_role_api;
 mod sys_sandbox_api;
+mod sys_system_manage_api;
 mod sys_user_api;

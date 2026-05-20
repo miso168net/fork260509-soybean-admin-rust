@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use server_api::admin::{SysMenuApi, SysRoleApi, SysUserApi};
+use server_api::admin::{SysMenuApi, SysSystemManageApi, SysUserApi};
 use server_global::global::{add_route, RouteInfo};
 
 pub struct SysSystemManageRouter;
@@ -89,16 +89,31 @@ impl SysSystemManageRouter {
         }
 
         let router = Router::new()
-            .route("/getRoleList", get(SysRoleApi::get_paginated_roles))
-            .route("/getAllRoles", get(SysRoleApi::get_all_roles))
-            .route("/getUserList", get(SysUserApi::get_paginated_users))
+            .route(
+                "/getRoleList",
+                get(SysSystemManageApi::list_roles_for_systemmanage),
+            )
+            .route(
+                "/getAllRoles",
+                get(SysSystemManageApi::list_all_roles_for_systemmanage),
+            )
+            .route(
+                "/getUserList",
+                get(SysSystemManageApi::list_users_for_systemmanage),
+            )
             .route("/addUser", post(SysUserApi::create_user))
             .route("/updateUser", post(SysUserApi::update_user))
             .route("/deleteUser", delete(SysUserApi::delete_user_by_body))
             .route("/batchDeleteUser", delete(SysUserApi::batch_delete_users))
-            .route("/getMenuList/v2", get(SysMenuApi::get_menu_list))
+            .route(
+                "/getMenuList/v2",
+                get(SysSystemManageApi::list_menu_for_systemmanage),
+            )
             .route("/getAllPages", get(SysMenuApi::get_all_pages))
-            .route("/getMenuTree", get(SysMenuApi::tree_menu));
+            .route(
+                "/getMenuTree",
+                get(SysSystemManageApi::tree_menu_for_systemmanage),
+            );
 
         Router::new().nest(Self::BASE_PATH, router)
     }
