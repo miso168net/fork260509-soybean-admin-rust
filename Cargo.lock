@@ -5006,9 +5006,12 @@ dependencies = [
  "axum 0.8.4",
  "axum-casbin",
  "axum-extra",
+ "chrono",
  "headers",
+ "serde_json",
  "server-core",
  "server-service",
+ "tracing",
  "xdb",
 ]
 
@@ -5170,6 +5173,7 @@ dependencies = [
  "serde_json",
  "server-core",
  "tokio",
+ "tracing",
  "ulid",
  "validator",
 ]
