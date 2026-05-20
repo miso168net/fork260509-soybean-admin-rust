@@ -1,7 +1,7 @@
 use std::{error::Error, fmt};
 
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, Header, TokenData};
+use jsonwebtoken::{decode, encode, Algorithm, Header, TokenData, Validation};
 use serde::{Deserialize, Serialize};
 use server_config::JwtConfig;
 use server_global::global;
@@ -50,6 +50,11 @@ impl RefreshClaims {
 
     pub fn set_jti(&mut self, jti: String) {
         self.jti = Some(jti);
+    }
+
+    /// Accessor for the subject (user_id) claim.
+    pub fn sub(&self) -> &str {
+        &self.sub
     }
 }
 
@@ -148,6 +153,25 @@ impl JwtUtils {
 
         encode(&Header::default(), &claims, encoding_key)
             .map_err(|e| JwtError::TokenCreationError(e.to_string()))
+    }
+
+    /// Validate a refresh token using the refresh-specific key (REFRESH_KEYS).
+    /// RefreshClaims has no `aud` field, so validate_aud is disabled.
+    pub async fn validate_refresh_token(token: &str) -> Result<TokenData<RefreshClaims>, JwtError> {
+        let keys_arc = global::REFRESH_KEYS.get().ok_or(JwtError::KeysNotInitialized)?;
+        let keys = keys_arc.lock().await;
+
+        let jwt_config = global::get_config::<JwtConfig>().await.ok_or(JwtError::KeysNotInitialized)?;
+
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.leeway = 60;
+        validation.set_issuer(&[jwt_config.issuer.as_str()]);
+        validation.validate_nbf = true;
+        // RefreshClaims has no `aud` field — disable audience validation
+        validation.validate_aud = false;
+
+        decode::<RefreshClaims>(token, &keys.decoding, &validation)
+            .map_err(|e| JwtError::TokenValidationError(e.to_string()))
     }
 
     pub async fn validate_token(

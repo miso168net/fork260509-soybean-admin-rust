@@ -11,6 +11,14 @@ pub struct LoginInput {
     pub password: String,
 }
 
+// F13: refresh token rotation request DTO
+#[derive(Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct RefreshTokenInput {
+    #[validate(length(min = 1, message = "refreshToken cannot be empty"))]
+    pub refresh_token: String,
+}
+
 // F11 extracted-stubs: 3 個 stub DTO(per spec FR-001 / FR-002 / FR-003、FR-015 不加 validator）
 #[derive(Debug, Deserialize)]
 pub struct SendCaptchaInput {

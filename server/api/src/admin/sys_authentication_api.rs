@@ -14,7 +14,7 @@ use server_core::web::{
 use server_service::{
     admin::{
         dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AssignUserDto,
-        AuthErrorQuery, AuthOutput, LoginInput, SendCaptchaInput, SysAuthService,
+        AuthErrorQuery, AuthOutput, LoginInput, RefreshTokenInput, SendCaptchaInput, SysAuthService,
         SysAuthorizationService, TAuthService, TAuthorizationService, UserInfoOutput, UserRoute,
         VerifyCaptchaInput,
     },
@@ -57,6 +57,44 @@ impl SysAuthenticationApi {
 
         service
             .pwd_login(input, login_context)
+            .await
+            .map(Res::new_data)
+    }
+
+    /// F13: Refresh token rotation handler — same extractor pattern as login_handler.
+    pub async fn refresh_token_handler(
+        ConnectInfo(addr): ConnectInfo<SocketAddr>,
+        headers: HeaderMap,
+        TypedHeader(user_agent): TypedHeader<UserAgent>,
+        Extension(request_id): Extension<RequestId>,
+        Extension(service): Extension<Arc<SysAuthService>>,
+        ValidatedForm(input): ValidatedForm<RefreshTokenInput>,
+    ) -> Result<Res<AuthOutput>, AppError> {
+        let client_ip = {
+            let header_ip = ClientIp::get_real_ip(&headers);
+            if header_ip == "unknown" {
+                addr.ip().to_string()
+            } else {
+                header_ip
+            }
+        };
+
+        let address = xdb::searcher::search_by_ip(client_ip.as_str())
+            .unwrap_or_else(|_| "Unknown Location".to_string());
+
+        let refresh_context = LoginContext {
+            client_ip,
+            client_port: Some(addr.port() as i32),
+            address,
+            user_agent: user_agent.as_str().to_string(),
+            request_id: request_id.to_string(),
+            audience: Audience::ManagementPlatform,
+            login_type: "PC".to_string(),
+            domain: "built-in".to_string(),
+        };
+
+        service
+            .refresh_token(input.refresh_token, refresh_context)
             .await
             .map(Res::new_data)
     }

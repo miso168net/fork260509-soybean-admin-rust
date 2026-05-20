@@ -1,13 +1,19 @@
 use std::any::Any;
 
 use async_trait::async_trait;
+use chrono::Local;
 use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
-    RelationTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
+    sea_query::Expr,
 };
-use server_constant::definition::{consts::SystemEvent, Audience};
+use server_constant::definition::{
+    consts::{SystemEvent, TokenStatus},
+    Audience,
+};
 use server_core::web::{
     auth::Claims,
+    code,
     error::AppError,
     jwt::{JwtError, JwtUtils},
 };
@@ -16,6 +22,10 @@ use server_model::admin::{
     entities::{
         sea_orm_active_enums::Status,
         sys_role_menu::{Column as SysRoleMenuColumn, Entity as SysRoleMenuEntity},
+        sys_tokens::{
+            ActiveModel as SysTokensActiveModel, Column as SysTokensColumn,
+            Entity as SysTokensEntity,
+        },
         sys_user_role::Relation as SysUserRoleRelation,
     },
     facade::{
@@ -31,6 +41,7 @@ use server_utils::{SecureUtil, TreeBuilder};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tracing::{error, instrument};
+use ulid::Ulid;
 use super::{
     dto::sys_auth_dto::LoginContext, event_handlers::auth_event_handler::AuthEventHandler,
 };
@@ -218,6 +229,136 @@ impl TAuthService for SysAuthService {
 }
 
 impl SysAuthService {
+    /// F13: Refresh token rotation — validate JWT + DB state, re-issue token pair, mark old as used.
+    pub async fn refresh_token(
+        &self,
+        refresh_token: String,
+        context: LoginContext,
+    ) -> Result<AuthOutput, AppError> {
+        let db = db_helper::get_db_connection().await?;
+
+        // Step 1: Validate refresh token JWT signature + expiry
+        let token_data = JwtUtils::validate_refresh_token(&refresh_token)
+            .await
+            .map_err(|_| AppError {
+                code: code::CODE_EXPIRED_TOKEN_SIGNATURE,
+                message: "invalid or expired refresh token".to_string(),
+            })?;
+        let user_id = token_data.claims.sub().to_string();
+
+        // Step 2: Find sys_tokens row by refresh_token value
+        let token_row = SysTokensEntity::find()
+            .filter(SysTokensColumn::RefreshToken.eq(&refresh_token))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError {
+                code: code::CODE_EXPIRED_TOKEN_SIGNATURE,
+                message: "refresh token not found".to_string(),
+            })?;
+
+        // Step 3: Check status is Active ("unused")
+        if token_row.status != TokenStatus::Active.to_string() {
+            return Err(AppError {
+                code: code::CODE_EXPIRED_TOKEN_SIGNATURE,
+                message: "refresh token already used or revoked".to_string(),
+            });
+        }
+
+        // Step 4: Re-query user (also acts as soft-delete check per R-Q7)
+        let user = sys_user::find_active()
+            .filter(SysUserColumn::Id.eq(&user_id))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError {
+                code: code::CODE_LOGOUT_SESSION_INVALIDATED,
+                message: "user not found or deleted".to_string(),
+            })?;
+
+        let username = user.username.clone();
+        let domain_code = user.domain.clone(); // sys_user.domain IS the domain code (FK → sys_domain.code)
+
+        // Step 5: Re-query user roles
+        let role_codes = self.get_user_roles(&user_id, &db).await?;
+
+        // Step 6: Generate new access + refresh token pair
+        let auth_output = generate_auth_output(
+            user_id.clone(),
+            username.clone(),
+            role_codes,
+            domain_code.clone(),
+            None,
+            Audience::ManagementPlatform,
+        )
+        .await
+        .map_err(AppError::from)?;
+
+        // Step 7: Rotation transaction (E4) — UPDATE old row + INSERT new row atomically
+        let txn = db.begin().await.map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("begin txn failed: {}", e),
+        })?;
+
+        // (a) Mark old row as used, filter on status=Active to handle concurrency race (E-7)
+        let update_res = SysTokensEntity::update_many()
+            .col_expr(
+                SysTokensColumn::Status,
+                Expr::value(TokenStatus::Refreshed.to_string()),
+            )
+            .filter(SysTokensColumn::RefreshToken.eq(&refresh_token))
+            .filter(SysTokensColumn::Status.eq(TokenStatus::Active.to_string()))
+            .exec(&txn)
+            .await
+            .map_err(|e| AppError {
+                code: code::CODE_SERVER_DB_ERROR,
+                message: format!("update old token status failed: {}", e),
+            })?;
+
+        if update_res.rows_affected != 1 {
+            txn.rollback().await.ok();
+            return Err(AppError {
+                code: code::CODE_EXPIRED_TOKEN_SIGNATURE,
+                message: "refresh token concurrency conflict".to_string(),
+            });
+        }
+
+        // (b) Insert new token pair row
+        let now = Local::now().naive_local();
+        SysTokensActiveModel {
+            id: Set(Ulid::new().to_string()),
+            access_token: Set(auth_output.token.clone()),
+            refresh_token: Set(auth_output.refresh_token.clone()),
+            status: Set(TokenStatus::Active.to_string()),
+            user_id: Set(user_id),
+            username: Set(username.clone()),
+            domain: Set(domain_code),
+            login_time: Set(now),
+            ip: Set(context.client_ip),
+            port: Set(context.client_port),
+            address: Set(context.address),
+            user_agent: Set(context.user_agent),
+            request_id: Set(context.request_id),
+            r#type: Set(context.login_type),
+            created_at: Set(now),
+            created_by: Set(username),
+        }
+        .insert(&txn)
+        .await
+        .map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("insert new token row failed: {}", e),
+        })?;
+
+        txn.commit().await.map_err(|e| AppError {
+            code: code::CODE_SERVER_DB_ERROR,
+            message: format!("commit txn failed: {}", e),
+        })?;
+
+        // Step 8: Return new token pair
+        Ok(auth_output)
+    }
+
     /// 验证用户身份
     async fn verify_user(
         &self,
