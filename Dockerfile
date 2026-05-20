@@ -38,10 +38,11 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo build --release --bin server --bin migration && \
+    cargo build --release --bin server --bin migration --bin cleanup && \
     cp target/release/server /tmp/server && \
     cp target/release/migration /tmp/migration && \
-    strip /tmp/server /tmp/migration
+    cp target/release/cleanup /tmp/cleanup && \
+    strip /tmp/server /tmp/migration /tmp/cleanup
 
 # -----------------------------------------------------------------------------
 # Stage 2: runtime
@@ -63,6 +64,7 @@ WORKDIR /app
 
 COPY --from=builder /tmp/server /usr/local/bin/server
 COPY --from=builder /tmp/migration /usr/local/bin/migration
+COPY --from=builder /tmp/cleanup /usr/local/bin/cleanup
 COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/application.yaml /app/server/resources/
 COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/ip2region.xdb /app/server/resources/
 COPY --from=builder --chown=${APP_USER}:${APP_USER} /app/server/resources/rbac_model.conf /app/server/resources/

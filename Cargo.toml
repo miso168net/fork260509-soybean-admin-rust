@@ -5,6 +5,7 @@ members = ["server/api",
     "xdb",
     "migration",
     "server/api", "server/config", "server/core", "server/global", "server/initialize", "server/middleware", "server/model", "server/resource", "server/router", "server/service", "server/utils", "server/bin", "server/constant", "server/shared",
+    "server/cleanup",
 ]
 exclude = []
 resolver = "2"

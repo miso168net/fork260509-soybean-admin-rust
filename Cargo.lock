@@ -5026,6 +5026,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "server-cleanup"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sea-orm",
+ "server-core",
+ "server-model",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "server-config"
 version = "0.1.0"
 dependencies = [

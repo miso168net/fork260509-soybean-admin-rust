@@ -1,0 +1,19 @@
+[package]
+name = "server-cleanup"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "cleanup"
+path = "src/main.rs"
+
+[dependencies]
+server-model = { path = "../model" }
+server-core = { path = "../core" }
+sea-orm = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
