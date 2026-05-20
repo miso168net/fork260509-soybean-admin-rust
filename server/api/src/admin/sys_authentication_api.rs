@@ -66,7 +66,8 @@ impl SysAuthenticationApi {
         let user_info = UserInfoOutput {
             user_id: user.user_id(),
             user_name: user.username(),
-            roles: user.subject(),
+            // F7.2: 映射 role code 對齊 base-web static route filter(見 map_role_alias)
+            roles: user.subject().iter().map(|c| map_role_alias(c)).collect(),
             buttons: vec![],
         };
 
@@ -137,5 +138,33 @@ impl SysAuthenticationApi {
             "code": q.code.unwrap_or_default(),
             "msg":  q.msg.unwrap_or_default(),
         })))
+    }
+}
+
+/// F7.2 role-code-alignment:rust sys_role.code(ROLE_*)→ base-web example
+/// static route filter 期望的 role code(R_*)alias 映射。
+/// 只用於 getUserInfo response 邊界;JWT Claims.role / casbin_rule.v0 /
+/// sys_role.code DB 維持 ROLE_*、Casbin enforce 不受影響。
+fn map_role_alias(code: &str) -> String {
+    match code {
+        "ROLE_SUPER" => "R_SUPER".to_string(),
+        "ROLE_ADMIN" => "R_ADMIN".to_string(),
+        "ROLE_USER" => "R_USER".to_string(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::map_role_alias;
+
+    #[test]
+    fn test_map_role_alias() {
+        // 3 known role code → R_* alias
+        assert_eq!(map_role_alias("ROLE_SUPER"), "R_SUPER");
+        assert_eq!(map_role_alias("ROLE_ADMIN"), "R_ADMIN");
+        assert_eq!(map_role_alias("ROLE_USER"), "R_USER");
+        // unknown code → pass through 原樣
+        assert_eq!(map_role_alias("ROLE_FUTURE"), "ROLE_FUTURE");
     }
 }
