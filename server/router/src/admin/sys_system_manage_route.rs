@@ -82,6 +82,30 @@ impl SysSystemManageRouter {
                 menu_service,
                 "菜单树",
             ),
+            RouteInfo::new(
+                &format!("{}/addMenu", base_path),
+                Method::POST,
+                menu_service,
+                "新增菜单",
+            ),
+            RouteInfo::new(
+                &format!("{}/updateMenu", base_path),
+                Method::POST,
+                menu_service,
+                "更新菜单",
+            ),
+            RouteInfo::new(
+                &format!("{}/deleteMenu", base_path),
+                Method::DELETE,
+                menu_service,
+                "删除菜单(body id)",
+            ),
+            RouteInfo::new(
+                &format!("{}/batchDeleteMenu", base_path),
+                Method::DELETE,
+                menu_service,
+                "批量删除菜单",
+            ),
         ];
 
         for route in routes {
@@ -113,6 +137,13 @@ impl SysSystemManageRouter {
             .route(
                 "/getMenuTree",
                 get(SysSystemManageApi::tree_menu_for_systemmanage),
+            )
+            .route("/addMenu", post(SysSystemManageApi::add_menu_for_systemmanage))
+            .route("/updateMenu", post(SysSystemManageApi::update_menu_for_systemmanage))
+            .route("/deleteMenu", delete(SysSystemManageApi::delete_menu_for_systemmanage))
+            .route(
+                "/batchDeleteMenu",
+                delete(SysSystemManageApi::batch_delete_menu_for_systemmanage),
             );
 
         Router::new().nest(Self::BASE_PATH, router)

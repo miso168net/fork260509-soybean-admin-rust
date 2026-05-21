@@ -77,3 +77,66 @@ pub struct IsRouteExistInput {
     #[validate(length(min = 1))]
     pub route_name: String,
 }
+
+// W-FW2 systemManage transform layer: base-web-shaped add/update/delete menu DTOs。
+// 僅 Deserialize（無 Validate）— 必填欄位空值由 base-web 表單驗證把關，
+// 後端轉換層只負責形狀對映。Add / Update 分為兩型：Update 多 id，刻意不共用。
+// query / buttons / fixedIndexInTab 等欄位不宣告，serde 自動忽略（spec Q1 範疇外）。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemManageAddMenuInput {
+    pub menu_type: String,
+    pub menu_name: String,
+    pub route_name: String,
+    pub route_path: String,
+    pub component: String,
+    pub order: i32,
+    pub i18n_key: Option<String>,
+    pub icon: Option<String>,
+    pub icon_type: Option<String>,
+    pub status: String,
+    pub parent_id: i32,
+    pub keep_alive: Option<bool>,
+    pub constant: bool,
+    pub href: Option<String>,
+    pub hide_in_menu: Option<bool>,
+    pub active_menu: Option<String>,
+    pub multi_tab: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemManageUpdateMenuInput {
+    pub id: i32,
+    pub menu_type: String,
+    pub menu_name: String,
+    pub route_name: String,
+    pub route_path: String,
+    pub component: String,
+    pub order: i32,
+    pub i18n_key: Option<String>,
+    pub icon: Option<String>,
+    pub icon_type: Option<String>,
+    pub status: String,
+    pub parent_id: i32,
+    pub keep_alive: Option<bool>,
+    pub constant: bool,
+    pub href: Option<String>,
+    pub hide_in_menu: Option<bool>,
+    pub active_menu: Option<String>,
+    pub multi_tab: Option<bool>,
+}
+
+// W-FW2 systemManage: DELETE /systemManage/deleteMenu body-id payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteMenuByBodyInput {
+    pub id: i32,
+}
+
+// W-FW2 systemManage: DELETE /systemManage/batchDeleteMenu payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDeleteMenuInput {
+    pub ids: Vec<i32>,
+}
