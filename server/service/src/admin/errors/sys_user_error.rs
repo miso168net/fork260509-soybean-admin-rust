@@ -1,3 +1,4 @@
+use server_core::web::code;
 use server_core::web::error::{ApiError, AppError};
 use thiserror::Error;
 
@@ -18,11 +19,11 @@ pub enum UserError {
 impl ApiError for UserError {
     fn code(&self) -> u16 {
         match self {
-            UserError::UserNotFound => 1001,
-            UserError::WrongPassword => 1002,
-            UserError::AuthenticationFailed => 1003,
-            UserError::UsernameAlreadyExists => 1004,
-            UserError::InvalidUserStatus => 1005,
+            UserError::UserNotFound => code::CODE_USER_NOT_FOUND,
+            UserError::WrongPassword => code::CODE_USER_WRONG_PASSWORD,
+            UserError::AuthenticationFailed => code::CODE_USER_AUTHENTICATION_FAILED,
+            UserError::UsernameAlreadyExists => code::CODE_USER_USERNAME_ALREADY_EXISTS,
+            UserError::InvalidUserStatus => code::CODE_USER_INVALID_STATUS,
         }
     }
 

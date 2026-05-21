@@ -1,15 +1,23 @@
 //! Business code constants for the `Res<T>` response envelope.
 //!
-//! All 24 codes from specs/001-response-shape-alignment/spec.md §Key Entities,
-//! grouped: success (1) / logout (2) / modal logout (2) / expired (3) /
-//! validation (3) / permission (4) / business (4) / server (5) — sums to 24.
-//! (Spec FR-005 summary "23 條" 為 arithmetic typo — 以本檔 + data-model.md §E2 列表為準。)
+//! All 29 codes from specs/001-response-shape-alignment/spec.md §Key Entities,
+//! grouped: success (1) / user (5) / logout (2) / modal logout (2) / expired (3) /
+//! validation (3) / permission (4) / business (4) / server (5) — sums to 29.
+//! (Spec FR-005 summary "23 條" 為 arithmetic typo — 以本檔 + data-model.md §E2 列表為準。
+//! F14 US2 R3 加入 user 群組 5 條 1001-1005。)
 //!
 //! Naming: `CODE_<group>_<semantic>` (R2 — SCREAMING_SNAKE_CASE, flat namespace).
 //! Reference: specs/001-response-shape-alignment/data-model.md §E2.
 
 // Success (1 條)
 pub const CODE_SUCCESS: u16 = 0;
+
+// User (5 條) — rust 新
+pub const CODE_USER_NOT_FOUND: u16 = 1001;
+pub const CODE_USER_WRONG_PASSWORD: u16 = 1002;
+pub const CODE_USER_AUTHENTICATION_FAILED: u16 = 1003;
+pub const CODE_USER_USERNAME_ALREADY_EXISTS: u16 = 1004;
+pub const CODE_USER_INVALID_STATUS: u16 = 1005;
 
 // Logout (2 條) — base 既有
 pub const CODE_LOGOUT_SESSION_INVALIDATED: u16 = 8888;
