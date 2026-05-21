@@ -13,3 +13,4 @@ pub mod m20260521_a_f7_admin_role_existing_paths_seed;
 pub mod m20260522_a_f8_assign_users_seed;
 pub mod m20260523_a_030_user_gender;
 pub mod m20260522_b_wfw2_menu_alias_seed;
+pub mod m20260522_c_sys_menu_id_seq_fix;
