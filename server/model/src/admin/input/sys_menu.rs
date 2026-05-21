@@ -1,8 +1,30 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use server_core::web::page::PageRequest;
 use validator::Validate;
 
 use crate::admin::entities::sea_orm_active_enums::{MenuType, Status};
+
+/// W-FW2 fix: parentId 可能是 number（建立路徑）或 string（編輯路徑，從 getMenuList 回傳值預填）。
+/// 兩種形式都接受，統一反序列化成 i32。
+fn deserialize_i32_or_string<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(deserializer)?;
+    match v {
+        serde_json::Value::Number(n) => n
+            .as_i64()
+            .and_then(|i| i32::try_from(i).ok())
+            .ok_or_else(|| serde::de::Error::custom(format!("parentId number out of i32 range: {}", n))),
+        serde_json::Value::String(s) => s
+            .parse::<i32>()
+            .map_err(|_| serde::de::Error::custom(format!("parentId cannot parse string as i32: {:?}", s))),
+        other => Err(serde::de::Error::custom(format!(
+            "parentId expected number or string, got: {}",
+            other
+        ))),
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +117,7 @@ pub struct SystemManageAddMenuInput {
     pub icon: Option<String>,
     pub icon_type: Option<String>,
     pub status: String,
+    #[serde(deserialize_with = "deserialize_i32_or_string")]
     pub parent_id: i32,
     pub keep_alive: Option<bool>,
     pub constant: bool,
@@ -118,6 +141,7 @@ pub struct SystemManageUpdateMenuInput {
     pub icon: Option<String>,
     pub icon_type: Option<String>,
     pub status: String,
+    #[serde(deserialize_with = "deserialize_i32_or_string")]
     pub parent_id: i32,
     pub keep_alive: Option<bool>,
     pub constant: bool,
