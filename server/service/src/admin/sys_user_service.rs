@@ -200,21 +200,24 @@ impl TUserService for SysUserService {
             .map_err(AppError::from)?
             .ok_or_else(|| AppError::from(UserError::UserNotFound))?;
 
-        if input.user.username != before.username {
-            self.check_username_unique_in_txn(&txn, &input.user.username)
+        if input.username != before.username {
+            self.check_username_unique_in_txn(&txn, &input.username)
                 .await?;
         }
 
         let mut user = before.clone().into_active_model();
-        user.domain = Set(input.user.domain);
-        user.username = Set(input.user.username);
-        user.password = Set(input.user.password); // TODO: Note: In a real application, you should hash the password
-        user.nick_name = Set(input.user.nick_name);
-        user.avatar = Set(input.user.avatar);
-        user.email = Set(input.user.email);
-        user.phone_number = Set(input.user.phone_number);
-        user.status = Set(input.user.status);
-        user.gender = Set(input.user.gender);
+        user.domain = Set(input.domain);
+        user.username = Set(input.username);
+        if let Some(pw) = input.password {
+            // TODO: Note: In a real application, you should hash the password
+            user.password = Set(pw);
+        }
+        user.nick_name = Set(input.nick_name);
+        user.avatar = Set(input.avatar);
+        user.email = Set(input.email);
+        user.phone_number = Set(input.phone_number);
+        user.status = Set(input.status);
+        user.gender = Set(input.gender);
 
         let updated_user = user.update(&txn).await.map_err(AppError::from)?;
 

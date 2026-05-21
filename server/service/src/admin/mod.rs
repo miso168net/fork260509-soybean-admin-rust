@@ -1,6 +1,7 @@
 pub use errors::*;
 pub use server_model::admin::{
     entities::{
+        sea_orm_active_enums::{Gender, Status},
         sys_login_log::Model as SysLoginLogModel,
         sys_operation_log::Model as SysOperationLogModel,
     },

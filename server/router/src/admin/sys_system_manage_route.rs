@@ -101,8 +101,8 @@ impl SysSystemManageRouter {
                 "/getUserList",
                 get(SysSystemManageApi::list_users_for_systemmanage),
             )
-            .route("/addUser", post(SysUserApi::create_user))
-            .route("/updateUser", post(SysUserApi::update_user))
+            .route("/addUser", post(SysSystemManageApi::add_user_for_systemmanage))
+            .route("/updateUser", post(SysSystemManageApi::update_user_for_systemmanage))
             .route("/deleteUser", delete(SysUserApi::delete_user_by_body))
             .route("/batchDeleteUser", delete(SysUserApi::batch_delete_users))
             .route(

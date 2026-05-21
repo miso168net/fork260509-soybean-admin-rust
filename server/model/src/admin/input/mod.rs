@@ -9,7 +9,8 @@ pub use sys_operation_log::OperationLogPageRequest;
 pub use sys_organization::OrganizationPageRequest;
 pub use sys_role::{CreateRoleInput, RolePageRequest, UpdateRoleInput};
 pub use sys_user::{
-    BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, UpdateUserInput, UserPageRequest,
+    BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, SystemManageAddUserInput,
+    SystemManageUpdateUserInput, UpdateUserInput, UserPageRequest,
 };
 
 mod sys_access_key;
