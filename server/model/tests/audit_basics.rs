@@ -84,6 +84,7 @@ async fn audit_snapshot_redacts_sys_user_password() {
         phone_number: None,
         nick_name: "Alice".to_string(),
         status: Status::Enabled,
+        gender: None,
         created_at: Local::now().naive_local(),
         created_by: "test".to_string(),
         updated_at: None,
@@ -169,6 +170,7 @@ async fn soft_delete_writes_audit_event_with_snapshot() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await

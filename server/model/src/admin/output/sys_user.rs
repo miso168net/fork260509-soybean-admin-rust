@@ -2,7 +2,10 @@ use chrono::NaiveDateTime;
 use sea_orm::FromQueryResult;
 use serde::Serialize;
 
-use crate::admin::entities::{sea_orm_active_enums::Status, sys_user::Model as SysUserModel};
+use crate::admin::entities::{
+    sea_orm_active_enums::{Gender, Status},
+    sys_user::Model as SysUserModel,
+};
 
 #[derive(Debug, FromQueryResult)]
 pub struct UserWithDomainAndOrgOutput {
@@ -27,6 +30,7 @@ pub struct UserWithoutPassword {
     pub email: Option<String>,
     pub phone_number: Option<String>,
     pub status: Status,
+    pub gender: Option<Gender>,
     pub created_at: NaiveDateTime,
     pub created_by: String,
     pub updated_at: Option<NaiveDateTime>,
@@ -44,6 +48,7 @@ impl From<SysUserModel> for UserWithoutPassword {
             email: model.email,
             phone_number: model.phone_number,
             status: model.status,
+            gender: model.gender,
             created_at: model.created_at,
             created_by: model.created_by,
             updated_at: model.updated_at,

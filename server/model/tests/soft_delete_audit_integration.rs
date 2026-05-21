@@ -44,6 +44,7 @@ async fn double_soft_delete_returns_not_found() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await
@@ -93,6 +94,7 @@ async fn restore_active_row_returns_not_found() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await
@@ -133,6 +135,7 @@ async fn audit_row_count_matches_operations() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await

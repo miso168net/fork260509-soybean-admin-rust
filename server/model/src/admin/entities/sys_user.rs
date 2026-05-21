@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 use serde::Serialize;
 
-use super::sea_orm_active_enums::Status;
+use super::sea_orm_active_enums::{Gender, Status};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize)]
 #[sea_orm(table_name = "sys_user")]
@@ -27,6 +27,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub nick_name: String,
     pub status: Status,
+    #[sea_orm(nullable)]
+    pub gender: Option<Gender>,
     pub created_at: DateTime,
     #[sea_orm(column_type = "Text")]
     pub created_by: String,

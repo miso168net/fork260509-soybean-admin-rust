@@ -9,7 +9,7 @@ use serde::Serialize;
 use tracing::warn;
 
 use crate::admin::entities::{
-    sea_orm_active_enums::{MenuType, Status},
+    sea_orm_active_enums::{Gender, MenuType, Status},
     sys_role,
 };
 use crate::admin::output::{sys_menu::MenuTree, sys_user::UserWithoutPassword};
@@ -22,7 +22,7 @@ pub struct SystemManageRoleOutput {
     pub role_name: String,
     pub role_code: String,
     pub role_desc: String,
-    pub status: Status,
+    pub status: String,
     pub created_at: NaiveDateTime,
     pub created_by: String,
     pub updated_at: Option<NaiveDateTime>,
@@ -36,7 +36,7 @@ impl From<sys_role::Model> for SystemManageRoleOutput {
             role_name: m.name,
             role_code: m.code,
             role_desc: m.description.unwrap_or_default(),
-            status: m.status,
+            status: map_status(m.status),
             created_at: m.created_at,
             created_by: m.created_by,
             updated_at: m.updated_at,
@@ -75,7 +75,7 @@ pub struct SystemManageUserOutput {
     pub user_phone: Option<String>,
     pub user_email: Option<String>,
     pub user_roles: Vec<String>,
-    pub status: Status,
+    pub status: String,
     pub created_at: NaiveDateTime,
     pub created_by: String,
     pub updated_at: Option<NaiveDateTime>,
@@ -87,12 +87,12 @@ impl From<UserWithoutPassword> for SystemManageUserOutput {
         Self {
             id: m.id,
             user_name: m.username,
-            user_gender: None,
+            user_gender: map_gender(m.gender),
             nick_name: m.nick_name,
             user_phone: m.phone_number,
             user_email: m.email,
             user_roles: vec![],
-            status: m.status,
+            status: map_status(m.status),
             created_at: m.created_at,
             created_by: m.created_by,
             updated_at: m.updated_at,
@@ -116,7 +116,7 @@ pub struct SystemManageMenuOutput {
     pub icon_type: Option<String>,
     pub buttons: Option<Vec<serde_json::Value>>,
     pub children: Option<Vec<SystemManageMenuOutput>>,
-    pub status: Status,
+    pub status: String,
     pub hide_in_menu: Option<bool>,
     pub order: i32,
     pub i18n_key: Option<String>,
@@ -151,6 +151,25 @@ fn map_icon_type(rust_type: Option<i32>) -> Option<String> {
     }
 }
 
+fn map_gender(rust_gender: Option<Gender>) -> Option<String> {
+    match rust_gender {
+        Some(Gender::Male) => Some("1".to_string()),
+        Some(Gender::Female) => Some("2".to_string()),
+        None => None,
+    }
+}
+
+fn map_status(rust_status: Status) -> String {
+    match rust_status {
+        Status::Enabled => "1".to_string(),
+        Status::Disabled => "2".to_string(),
+        Status::Banned => {
+            warn!("systemManage Output: status `Banned` 收斂為 base-web \"2\"(非啟用態)");
+            "2".to_string()
+        }
+    }
+}
+
 impl From<MenuTree> for SystemManageMenuOutput {
     fn from(m: MenuTree) -> Self {
         Self {
@@ -165,7 +184,7 @@ impl From<MenuTree> for SystemManageMenuOutput {
             icon_type: map_icon_type(m.icon_type),
             buttons: None,
             children: None,
-            status: m.status,
+            status: map_status(m.status),
             hide_in_menu: m.hide_in_menu,
             order: m.sequence,
             i18n_key: m.i18n_key,
@@ -201,5 +220,40 @@ impl From<MenuTree> for SystemManageMenuTreeNodeOutput {
                 .children
                 .map(|children| children.into_iter().map(Into::into).collect()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_map_status_enabled() {
+        assert_eq!(map_status(Status::Enabled), "1");
+    }
+
+    #[test]
+    fn test_map_status_disabled() {
+        assert_eq!(map_status(Status::Disabled), "2");
+    }
+
+    #[test]
+    fn test_map_status_banned() {
+        assert_eq!(map_status(Status::Banned), "2");
+    }
+
+    #[test]
+    fn test_map_gender_male() {
+        assert_eq!(map_gender(Some(Gender::Male)), Some("1".to_string()));
+    }
+
+    #[test]
+    fn test_map_gender_female() {
+        assert_eq!(map_gender(Some(Gender::Female)), Some("2".to_string()));
+    }
+
+    #[test]
+    fn test_map_gender_none() {
+        assert_eq!(map_gender(None), None);
     }
 }

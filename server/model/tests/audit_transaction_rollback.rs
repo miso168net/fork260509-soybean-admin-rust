@@ -49,6 +49,7 @@ async fn explicit_rollback_drops_both_business_and_audit_rows() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     };
     let user_model = user_am.insert(&txn).await.unwrap();
 
@@ -118,6 +119,7 @@ async fn business_unique_violation_drops_audit_row() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await
@@ -138,6 +140,7 @@ async fn business_unique_violation_drops_audit_row() {
         updated_at: Set(None),
         updated_by: Set(None),
         deleted_at: Set(None),
+        gender: sea_orm::ActiveValue::NotSet,
     }
     .insert(db.as_ref())
     .await

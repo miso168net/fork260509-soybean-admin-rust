@@ -14,6 +14,16 @@ pub enum MenuType {
     Menu,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "gender")]
+pub enum Gender {
+    #[sea_orm(string_value = "male")]
+    #[serde(rename = "male")]
+    Male,
+    #[sea_orm(string_value = "female")]
+    #[serde(rename = "female")]
+    Female,
+}
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Deserialize, Serialize)]
 // TIPS: pg大小写敏感会存在问题clear 因此项目最初作为soybean-admin-nestjs孪生项目所以枚举最初为大写 现在统一修正为小写
 ///PostgreSQL 对标识符（包括自定义类型名、表名、列名等）的命名有明确规则：未加双引号的标识符会自动折叠为小写 ￼。因此，推荐始终使用小写字母和下划线（snake_case）来命名对象，就能避免大小写混淆或关键字冲突的问题。如 Bytebase 风格指南指出，“所有对象名称必须只使用小写字母、下划线和数字，名称必须遵循 snake_case” ￼。Pigsty 等社区规范也建议：表名、列名等一律小写，避免使用大写或驼峰等需要引用的形式 ￼ ￼
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "status")]

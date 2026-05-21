@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use server_core::web::page::PageRequest;
 use validator::Validate;
 
-use crate::admin::entities::sea_orm_active_enums::Status;
+use crate::admin::entities::sea_orm_active_enums::{Gender, Status};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +10,7 @@ pub struct UserPageRequest {
     #[serde(flatten)]
     pub page_details: PageRequest,
     pub keywords: Option<String>,
+    pub user_gender: Option<String>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -40,6 +41,7 @@ pub struct UserInput {
     #[validate(length(max = 20, message = "Phone number must not exceed 20 characters"))]
     pub phone_number: Option<String>,
     pub status: Status,
+    pub gender: Option<Gender>,
 }
 
 pub type CreateUserInput = UserInput;

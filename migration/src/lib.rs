@@ -52,6 +52,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260521_a_f7_admin_role_existing_paths_seed::Migration),
             // F8 assign-users: ROLE_SUPER 對 /authorization/assign-users POST 1 row Casbin policy seed
             Box::new(datas::m20260522_a_f8_assign_users_seed::Migration),
+            // F030 US2 gender-display-filter: sys_user.gender 欄位 + PG enum + seed
+            Box::new(datas::m20260523_a_030_user_gender::Migration),
         ]
     }
 }

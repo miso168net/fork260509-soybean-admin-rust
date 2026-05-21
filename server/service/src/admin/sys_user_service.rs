@@ -12,6 +12,7 @@ use server_core::web::{
 use server_model::admin::{
     audit_log,
     audit_serialize::audit_snapshot,
+    entities::sea_orm_active_enums::Gender,
     facade::sys_user::{self, ActiveModel as SysUserActiveModel, Column as SysUserColumn},
     input::{CreateUserInput, UpdateUserInput, UserPageRequest},
     output::UserWithoutPassword,
@@ -90,6 +91,16 @@ impl TUserService for SysUserService {
             query = query.filter(condition);
         }
 
+        match params.user_gender.as_deref() {
+            Some("1") => {
+                query = query.filter(SysUserColumn::Gender.eq(Gender::Male));
+            }
+            Some("2") => {
+                query = query.filter(SysUserColumn::Gender.eq(Gender::Female));
+            }
+            _ => {}
+        }
+
         let total = query
             .clone()
             .count(db.as_ref())
@@ -135,6 +146,7 @@ impl TUserService for SysUserService {
             email: Set(input.email),
             phone_number: Set(input.phone_number),
             status: Set(input.status),
+            gender: Set(input.gender),
             created_at: Set(Local::now().naive_local()),
             created_by: Set("TODO".to_string()),
             ..Default::default()
@@ -202,6 +214,7 @@ impl TUserService for SysUserService {
         user.email = Set(input.user.email);
         user.phone_number = Set(input.user.phone_number);
         user.status = Set(input.user.status);
+        user.gender = Set(input.user.gender);
 
         let updated_user = user.update(&txn).await.map_err(AppError::from)?;
 
