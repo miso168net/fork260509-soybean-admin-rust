@@ -54,6 +54,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260522_a_f8_assign_users_seed::Migration),
             // F030 US2 gender-display-filter: sys_user.gender 欄位 + PG enum + seed
             Box::new(datas::m20260523_a_030_user_gender::Migration),
+            // W-FW2 menu-crud-wiring: 4 條 menu 寫入 alias Casbin policy seed(8 row)
+            Box::new(datas::m20260522_b_wfw2_menu_alias_seed::Migration),
         ]
     }
 }
