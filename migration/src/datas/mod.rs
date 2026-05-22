@@ -15,3 +15,4 @@ pub mod m20260523_a_030_user_gender;
 pub mod m20260522_b_wfw2_menu_alias_seed;
 pub mod m20260522_c_sys_menu_id_seq_fix;
 pub mod m20260522_d_wfw3_role_alias_seed;
+pub mod m20260522_e_wfw4_role_auth_alias_seed;

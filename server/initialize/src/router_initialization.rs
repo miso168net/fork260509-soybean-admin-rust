@@ -349,7 +349,8 @@ pub async fn initialize_admin_router() -> Router {
         .await
         .layer(Extension(Arc::new(SysUserService) as Arc<SysUserService>))
         .layer(Extension(Arc::new(SysRoleService) as Arc<SysRoleService>))
-        .layer(Extension(Arc::new(SysMenuService) as Arc<SysMenuService>));
+        .layer(Extension(Arc::new(SysMenuService) as Arc<SysMenuService>))
+        .layer(Extension(Arc::new(SysAuthorizationService) as Arc<SysAuthorizationService>));
     let system_manage_router = apply_layers(
         system_manage_router,
         Services::None(std::marker::PhantomData::<()>),

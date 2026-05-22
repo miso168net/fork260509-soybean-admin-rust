@@ -3,20 +3,22 @@
 //! 用 .into() map raw model → F7 Output DTO、wrap Res::new_data envelope。
 //! W-FW1: add/update user transform handlers (base-web shape → backend domain shape).
 //! W-FW2: add/update/delete/batchDelete menu transform handlers (base-web shape → backend domain shape).
+//! W-FW4: getRoleMenuIds/assignRoleMenus 角色菜單授權 alias handlers (domain 由 JWT actor 注入).
 
 use std::sync::Arc;
 
-use axum::{extract::Query, Extension, Json};
+use axum::{extract::{Path, Query}, Extension, Json};
 use serde_json::{json, Value};
 use server_core::web::{audit::Actor, auth::User, code, error::AppError, page::PaginatedData, res::Res};
 use server_service::admin::{
-    BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput, CreateUserInput,
-    DeleteMenuByBodyInput, DeleteRoleByBodyInput, Gender, MenuInput, MenuType, RoleInput,
-    RolePageRequest, Status, SysMenuModel, SysMenuService, SysRoleModel, SysRoleService,
-    SysUserService, SystemManageAddMenuInput, SystemManageAddRoleInput, SystemManageAddUserInput,
-    SystemManageAllRoleOutput, SystemManageMenuOutput, SystemManageMenuTreeNodeOutput,
-    SystemManageRoleOutput, SystemManageUpdateMenuInput, SystemManageUpdateRoleInput,
-    SystemManageUpdateUserInput, SystemManageUserOutput, TMenuService, TRoleService, TUserService,
+    AssignRoleMenusInput, BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput,
+    CreateUserInput, DeleteMenuByBodyInput, DeleteRoleByBodyInput, Gender, MenuInput, MenuType,
+    RoleInput, RolePageRequest, Status, SysAuthorizationService, SysMenuModel, SysMenuService,
+    SysRoleModel, SysRoleService, SysUserService, SystemManageAddMenuInput,
+    SystemManageAddRoleInput, SystemManageAddUserInput, SystemManageAllRoleOutput,
+    SystemManageMenuOutput, SystemManageMenuTreeNodeOutput, SystemManageRoleOutput,
+    SystemManageUpdateMenuInput, SystemManageUpdateRoleInput, SystemManageUpdateUserInput,
+    SystemManageUserOutput, TAuthorizationService, TMenuService, TRoleService, TUserService,
     UpdateMenuInput, UpdateRoleInput, UpdateUserInput, UserPageRequest, UserWithoutPassword,
 };
 
@@ -286,6 +288,32 @@ impl SysSystemManageApi {
             }
         }
         Ok(Res::new_data(json!({ "deletedCount": deleted_count })))
+    }
+
+    /// W-FW4 transform: GET /systemManage/getRoleMenuIds/:roleId
+    /// domain 由 JWT actor 伺服器端注入，base-web 不傳。
+    pub async fn get_role_menu_ids_for_systemmanage(
+        Path(role_id): Path<String>,
+        Extension(service): Extension<Arc<SysMenuService>>,
+        Extension(user): Extension<User>,
+    ) -> Result<Res<Vec<i32>>, AppError> {
+        service
+            .get_menu_ids_by_role_id(role_id, user.domain())
+            .await
+            .map(Res::new_data)
+    }
+
+    /// W-FW4 transform: POST /systemManage/assignRoleMenus
+    /// domain 由 JWT actor 伺服器端注入，base-web 不傳。
+    pub async fn assign_role_menus_for_systemmanage(
+        Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<AssignRoleMenusInput>,
+    ) -> Result<Res<bool>, AppError> {
+        service
+            .assign_routes(user.domain(), input.role_id, input.menu_ids)
+            .await
+            .map(|_| Res::new_data(true))
     }
 }
 

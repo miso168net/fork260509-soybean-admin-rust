@@ -78,3 +78,13 @@ pub struct DeleteRoleByBodyInput {
 pub struct BatchDeleteRoleInput {
     pub ids: Vec<String>,
 }
+
+// W-FW4 systemManage: POST /systemManage/assignRoleMenus payload
+// role_id 為 ULID 字串；menu_ids 為真 i32（對應 sys_menu.id PK）。
+// 讀 alias(getRoleMenuIds)走 path param，無 body DTO。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignRoleMenusInput {
+    pub role_id: String,
+    pub menu_ids: Vec<i32>,
+}

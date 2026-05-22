@@ -130,6 +130,18 @@ impl SysSystemManageRouter {
                 role_service,
                 "批量删除角色",
             ),
+            RouteInfo::new(
+                &format!("{}/getRoleMenuIds/:roleId", base_path),
+                Method::GET,
+                menu_service,
+                "取角色菜单 id 列表",
+            ),
+            RouteInfo::new(
+                &format!("{}/assignRoleMenus", base_path),
+                Method::POST,
+                role_service,
+                "分配角色菜单授权",
+            ),
         ];
 
         for route in routes {
@@ -175,7 +187,12 @@ impl SysSystemManageRouter {
             .route(
                 "/batchDeleteRole",
                 delete(SysSystemManageApi::batch_delete_role_for_systemmanage),
-            );
+            )
+            .route(
+                "/getRoleMenuIds/{roleId}",
+                get(SysSystemManageApi::get_role_menu_ids_for_systemmanage),
+            )
+            .route("/assignRoleMenus", post(SysSystemManageApi::assign_role_menus_for_systemmanage));
 
         Router::new().nest(Self::BASE_PATH, router)
     }

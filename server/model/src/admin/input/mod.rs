@@ -11,8 +11,8 @@ pub use sys_menu::{
 pub use sys_operation_log::OperationLogPageRequest;
 pub use sys_organization::OrganizationPageRequest;
 pub use sys_role::{
-    BatchDeleteRoleInput, CreateRoleInput, DeleteRoleByBodyInput, RoleInput, RolePageRequest,
-    SystemManageAddRoleInput, SystemManageUpdateRoleInput, UpdateRoleInput,
+    AssignRoleMenusInput, BatchDeleteRoleInput, CreateRoleInput, DeleteRoleByBodyInput, RoleInput,
+    RolePageRequest, SystemManageAddRoleInput, SystemManageUpdateRoleInput, UpdateRoleInput,
 };
 pub use sys_user::{
     BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, SystemManageAddUserInput,
