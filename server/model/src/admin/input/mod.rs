@@ -10,7 +10,10 @@ pub use sys_menu::{
 };
 pub use sys_operation_log::OperationLogPageRequest;
 pub use sys_organization::OrganizationPageRequest;
-pub use sys_role::{CreateRoleInput, RolePageRequest, UpdateRoleInput};
+pub use sys_role::{
+    BatchDeleteRoleInput, CreateRoleInput, DeleteRoleByBodyInput, RolePageRequest,
+    SystemManageAddRoleInput, SystemManageUpdateRoleInput, UpdateRoleInput,
+};
 pub use sys_user::{
     BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, SystemManageAddUserInput,
     SystemManageUpdateUserInput, UpdateUserInput, UserPageRequest,

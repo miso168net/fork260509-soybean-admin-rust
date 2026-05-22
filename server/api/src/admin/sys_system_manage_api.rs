@@ -10,13 +10,14 @@ use axum::{extract::Query, Extension, Json};
 use serde_json::{json, Value};
 use server_core::web::{audit::Actor, auth::User, code, error::AppError, page::PaginatedData, res::Res};
 use server_service::admin::{
-    BatchDeleteMenuInput, CreateUserInput, DeleteMenuByBodyInput, Gender,
-    MenuInput, MenuType, RolePageRequest, Status, SysMenuModel, SysMenuService, SysRoleService,
-    SysUserService, SystemManageAddMenuInput, SystemManageAddUserInput, SystemManageAllRoleOutput,
-    SystemManageMenuOutput, SystemManageMenuTreeNodeOutput, SystemManageRoleOutput,
-    SystemManageUpdateMenuInput, SystemManageUpdateUserInput, SystemManageUserOutput, TMenuService,
-    TRoleService, TUserService, UpdateMenuInput, UpdateUserInput, UserPageRequest,
-    UserWithoutPassword,
+    BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput, CreateUserInput,
+    DeleteMenuByBodyInput, DeleteRoleByBodyInput, Gender, MenuInput, MenuType, RoleInput,
+    RolePageRequest, Status, SysMenuModel, SysMenuService, SysRoleModel, SysRoleService,
+    SysUserService, SystemManageAddMenuInput, SystemManageAddRoleInput, SystemManageAddUserInput,
+    SystemManageAllRoleOutput, SystemManageMenuOutput, SystemManageMenuTreeNodeOutput,
+    SystemManageRoleOutput, SystemManageUpdateMenuInput, SystemManageUpdateRoleInput,
+    SystemManageUpdateUserInput, SystemManageUserOutput, TMenuService, TRoleService, TUserService,
+    UpdateMenuInput, UpdateRoleInput, UpdateUserInput, UserPageRequest, UserWithoutPassword,
 };
 
 pub struct SysSystemManageApi;
@@ -212,6 +213,74 @@ impl SysSystemManageApi {
         let mut deleted_count: usize = 0;
         for id in input.ids {
             match service.delete_menu(id, &actor).await {
+                Ok(_) => deleted_count += 1,
+                Err(_) => continue,
+            }
+        }
+        Ok(Res::new_data(json!({ "deletedCount": deleted_count })))
+    }
+
+    /// W-FW3 transform: POST /systemManage/addRole (base-web shape → backend domain shape)
+    pub async fn add_role_for_systemmanage(
+        Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<SystemManageAddRoleInput>,
+    ) -> Result<Res<SysRoleModel>, AppError> {
+        let actor = Actor::from(&user);
+        let create_input: CreateRoleInput = RoleInput {
+            // R-Q1 root convention：base-web 角色頁是扁平表格，新角色一律掛 root
+            pid: "0".to_string(),
+            code: input.role_code,
+            name: input.role_name,
+            status: map_status(&input.status)?,
+            description: input.role_desc,
+        };
+        service.create_role(create_input, &actor).await.map(Res::new_data)
+    }
+
+    /// W-FW3 transform: POST /systemManage/updateRole (base-web shape → backend domain shape)
+    /// FR-007 code-lock：code / pid 沿用既有值（避免 Casbin policy 失聯、避免擾動角色樹）。
+    pub async fn update_role_for_systemmanage(
+        Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<SystemManageUpdateRoleInput>,
+    ) -> Result<Res<SysRoleModel>, AppError> {
+        let actor = Actor::from(&user);
+        let existing = service.get_role(&input.id).await?;
+        let update_input = UpdateRoleInput {
+            id: input.id,
+            role: RoleInput {
+                pid: existing.pid,
+                code: existing.code,
+                name: input.role_name,
+                status: map_status(&input.status)?,
+                description: input.role_desc,
+            },
+        };
+        service.update_role(update_input, &actor).await.map(Res::new_data)
+    }
+
+    /// W-FW3 transform: DELETE /systemManage/deleteRole (body id)
+    pub async fn delete_role_for_systemmanage(
+        Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<DeleteRoleByBodyInput>,
+    ) -> Result<Res<bool>, AppError> {
+        let actor = Actor::from(&user);
+        service.delete_role(&input.id, &actor).await.map(|_| Res::new_data(true))
+    }
+
+    /// W-FW3 transform: DELETE /systemManage/batchDeleteRole
+    /// per-row Err 不快、continue loop（比照 W-FW2 batch_delete_menu 體例）
+    pub async fn batch_delete_role_for_systemmanage(
+        Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<BatchDeleteRoleInput>,
+    ) -> Result<Res<Value>, AppError> {
+        let actor = Actor::from(&user);
+        let mut deleted_count: usize = 0;
+        for id in input.ids {
+            match service.delete_role(&id, &actor).await {
                 Ok(_) => deleted_count += 1,
                 Err(_) => continue,
             }

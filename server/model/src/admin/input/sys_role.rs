@@ -42,3 +42,39 @@ pub struct UpdateRoleInput {
     #[serde(flatten)]
     pub role: RoleInput,
 }
+
+// W-FW3 systemManage transform layer: base-web-shaped add/update/delete role DTOs。
+// 僅 Deserialize（無 Validate）— 必填欄位空值由 base-web 表單驗證把關，
+// 後端轉換層只負責形狀對映。Add / Update 分為兩型：Update 多 id，刻意不共用。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemManageAddRoleInput {
+    pub role_name: String,
+    pub role_code: String,
+    pub role_desc: Option<String>,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemManageUpdateRoleInput {
+    pub id: String,
+    pub role_name: String,
+    pub role_code: String,
+    pub role_desc: Option<String>,
+    pub status: String,
+}
+
+// W-FW3 systemManage: DELETE /systemManage/deleteRole body-id payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRoleByBodyInput {
+    pub id: String,
+}
+
+// W-FW3 systemManage: DELETE /systemManage/batchDeleteRole payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDeleteRoleInput {
+    pub ids: Vec<String>,
+}

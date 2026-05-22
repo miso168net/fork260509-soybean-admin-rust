@@ -184,6 +184,7 @@ impl TRoleService for SysRoleService {
             pid: Set(input.role.pid),
             code: Set(input.role.code),
             name: Set(input.role.name),
+            status: Set(input.role.status),
             description: Set(input.role.description),
 
             updated_at: Set(Some(Local::now().naive_local())),

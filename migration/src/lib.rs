@@ -58,6 +58,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260522_b_wfw2_menu_alias_seed::Migration),
             // W-FW2 menu-crud-wiring: 修正 sys_menu_id_seq sequence desync(setval 至 MAX(id))
             Box::new(datas::m20260522_c_sys_menu_id_seq_fix::Migration),
+            // W-FW3 role-crud-wiring: 4 條 role 寫入 alias Casbin policy seed(8 row)
+            Box::new(datas::m20260522_d_wfw3_role_alias_seed::Migration),
         ]
     }
 }
