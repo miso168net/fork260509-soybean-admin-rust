@@ -48,16 +48,27 @@ impl SysSystemManageApi {
     }
 
     /// F7 alias: GET /systemManage/getUserList
+    /// W-FW5 T002: user_roles 由批次查詢真實填充（取代 From impl 硬寫 vec![]）。
     pub async fn list_users_for_systemmanage(
         Query(params): Query<UserPageRequest>,
         Extension(service): Extension<Arc<SysUserService>>,
     ) -> Result<Res<PaginatedData<SystemManageUserOutput>>, AppError> {
         let raw = service.find_paginated_users(params).await?;
+        let mut records: Vec<SystemManageUserOutput> =
+            raw.records.into_iter().map(Into::into).collect();
+
+        // W-FW5 T002: 批次查本頁所有 user 的 role code 集合（一次 query、避免 N+1）
+        let user_ids: Vec<String> = records.iter().map(|r| r.id.clone()).collect();
+        let roles_map = service.get_role_codes_for_users(user_ids).await?;
+        for record in &mut records {
+            record.user_roles = roles_map.get(&record.id).cloned().unwrap_or_default();
+        }
+
         Ok(Res::new_data(PaginatedData {
             current: raw.current,
             size: raw.size,
             total: raw.total,
-            records: raw.records.into_iter().map(Into::into).collect(),
+            records,
         }))
     }
 
@@ -88,17 +99,20 @@ impl SysSystemManageApi {
     }
 
     /// W-FW1 transform: POST /systemManage/addUser (base-web shape → backend domain shape)
+    /// W-FW5: 收 userRoles（角色指派）+ 選填 password。
     pub async fn add_user_for_systemmanage(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageAddUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
         let actor = Actor::from(&user);
+        // W-FW5 T010: None / Some("") 皆視為未提供 → 沿用預設密碼 123456
+        let password = normalize_password(input.password)
+            .unwrap_or_else(|| "123456".to_string());
         let create_input = CreateUserInput {
             domain: "built-in".to_string(),
             username: input.user_name,
-            // 預設密碼 per research R-Q5；完整密碼 UX 屬 W-FW1-N2 follow-up
-            password: "123456".to_string(),
+            password,
             nick_name: input.nick_name,
             avatar: None,
             email: input.user_email,
@@ -106,10 +120,16 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             gender: map_gender(input.user_gender.as_deref())?,
         };
-        service.create_user(create_input, &actor).await.map(Res::new_data)
+        let created = service.create_user(create_input, &actor).await?;
+        // W-FW5 T005: user→roles 指派（空清單為合法清空）
+        service
+            .assign_roles_to_user(created.id.clone(), input.user_roles, &actor)
+            .await?;
+        Ok(Res::new_data(created))
     }
 
     /// W-FW1 transform: POST /systemManage/updateUser (base-web shape → backend domain shape)
+    /// W-FW5: 收 userRoles（角色指派）+ 選填 password。
     pub async fn update_user_for_systemmanage(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
@@ -120,7 +140,8 @@ impl SysSystemManageApi {
             id: input.id,
             domain: "built-in".to_string(),
             username: input.user_name,
-            password: None,
+            // W-FW5 T010: None / Some("") 皆視為未提供 → 不動 password
+            password: normalize_password(input.password),
             nick_name: input.nick_name,
             avatar: None,
             email: input.user_email,
@@ -128,7 +149,12 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             gender: map_gender(input.user_gender.as_deref())?,
         };
-        service.update_user(update_input, &actor).await.map(Res::new_data)
+        let updated = service.update_user(update_input, &actor).await?;
+        // W-FW5 T005: user→roles 指派（空清單為合法清空）
+        service
+            .assign_roles_to_user(updated.id.clone(), input.user_roles, &actor)
+            .await?;
+        Ok(Res::new_data(updated))
     }
 
     /// W-FW2 transform: POST /systemManage/addMenu (base-web shape → backend domain shape)
@@ -315,6 +341,11 @@ impl SysSystemManageApi {
             .await
             .map(|_| Res::new_data(true))
     }
+}
+
+/// W-FW5 T010: 密碼空值正規化 — `None` 與 `Some("")`（空字串）皆視為「未提供」。
+fn normalize_password(password: Option<String>) -> Option<String> {
+    password.filter(|p| !p.is_empty())
 }
 
 fn map_status(s: &str) -> Result<Status, AppError> {

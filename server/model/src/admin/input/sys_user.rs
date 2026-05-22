@@ -93,6 +93,12 @@ pub struct SystemManageAddUserInput {
     pub user_phone: Option<String>,
     pub user_email: Option<String>,
     pub status: String,
+    // W-FW5 US1: 角色指派 — base-web user drawer 多選欄（role code 清單）
+    #[serde(default)]
+    pub user_roles: Vec<String>,
+    // W-FW5 US2: 選填密碼 — None / Some("") 皆視為未提供（transform handler 處理）
+    #[serde(default)]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,4 +111,10 @@ pub struct SystemManageUpdateUserInput {
     pub user_phone: Option<String>,
     pub user_email: Option<String>,
     pub status: String,
+    // W-FW5 US1: 角色指派 — base-web user drawer 多選欄（role code 清單）
+    #[serde(default)]
+    pub user_roles: Vec<String>,
+    // W-FW5 US2: 選填密碼 — None / Some("") 皆視為未提供（transform handler 處理）
+    #[serde(default)]
+    pub password: Option<String>,
 }

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, IntoActiveModel, PaginatorTrait,
-    QueryFilter, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
+    JoinType, PaginatorTrait, QueryFilter, QuerySelect, RelationTrait, Set, TransactionTrait,
 };
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
@@ -12,8 +12,18 @@ use server_core::web::{
 use server_model::admin::{
     audit_log,
     audit_serialize::audit_snapshot,
-    entities::sea_orm_active_enums::Gender,
-    facade::sys_user::{self, ActiveModel as SysUserActiveModel, Column as SysUserColumn},
+    entities::{
+        prelude::SysUserRole,
+        sea_orm_active_enums::Gender,
+        sys_user_role::{
+            ActiveModel as SysUserRoleActiveModel, Column as SysUserRoleColumn,
+            Relation as SysUserRoleRelation,
+        },
+    },
+    facade::{
+        sys_role::{self, Column as SysRoleColumn},
+        sys_user::{self, ActiveModel as SysUserActiveModel, Column as SysUserColumn},
+    },
     input::{CreateUserInput, UpdateUserInput, UserPageRequest},
     output::UserWithoutPassword,
 };
@@ -43,6 +53,22 @@ pub trait TUserService {
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError>;
     async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
+
+    /// W-FW5 US1: user→roles delta 指派。`role_codes` 為 role code 清單，
+    /// 空清單為合法（清空該 user 全部角色）。無效 code → 拒絕。
+    async fn assign_roles_to_user(
+        &self,
+        user_id: String,
+        role_codes: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError>;
+
+    /// W-FW5 US1: 批次查多個 user 的 role code 集合（一次 query、記憶體 group by user_id，避免 N+1）。
+    /// 回傳 map：user_id → role code 清單；無角色的 user 不會出現在 map。
+    async fn get_role_codes_for_users(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, AppError>;
 }
 
 #[derive(Clone)]
@@ -209,8 +235,12 @@ impl TUserService for SysUserService {
         user.domain = Set(input.domain);
         user.username = Set(input.username);
         if let Some(pw) = input.password {
-            // TODO: Note: In a real application, you should hash the password
-            user.password = Set(pw);
+            // W-FW5 T008: 修正 update_user 密碼未 hash bug — 與 create_user 一致
+            let hashed = SecureUtil::hash_password(pw.as_bytes()).map_err(|e| AppError {
+                code: server_core::web::code::CODE_SERVER_INTERNAL_ERROR,
+                message: format!("password hash failed: {}", e),
+            })?;
+            user.password = Set(hashed);
         }
         user.nick_name = Set(input.nick_name);
         user.avatar = Set(input.avatar);
@@ -244,5 +274,135 @@ impl TUserService for SysUserService {
     async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
         sys_user::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await
+    }
+
+    async fn assign_roles_to_user(
+        &self,
+        user_id: String,
+        role_codes: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
+        let db = db_helper::get_db_connection().await?;
+
+        // 去重後解析（防 base-web 異常送重複 code 時誤判 InvalidRoleCode）
+        let mut unique_codes: Vec<String> = role_codes;
+        unique_codes.sort();
+        unique_codes.dedup();
+
+        // role code → role id 解析（無效 code → 拒絕，spec E-6）
+        let roles = sys_role::find_active()
+            .filter(SysRoleColumn::Code.is_in(unique_codes.clone()))
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+
+        if roles.len() != unique_codes.len() {
+            return Err(UserError::InvalidRoleCode.into());
+        }
+
+        // role id 集合（去重後對齊 sys_user_role 主鍵）
+        let target_role_ids: Vec<String> = roles.iter().map(|r| r.id.clone()).collect();
+
+        // 撈該 user 既有 sys_user_role
+        let existing = SysUserRole::find()
+            .filter(SysUserRoleColumn::UserId.eq(&user_id))
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+
+        let existing_role_ids: Vec<String> = existing.iter().map(|r| r.role_id.clone()).collect();
+
+        let new_role_ids: Vec<String> = target_role_ids
+            .iter()
+            .filter(|id| !existing_role_ids.contains(id))
+            .cloned()
+            .collect();
+
+        let role_ids_to_delete: Vec<String> = existing_role_ids
+            .iter()
+            .filter(|id| !target_role_ids.contains(id))
+            .cloned()
+            .collect();
+
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        if !new_role_ids.is_empty() {
+            let user_roles: Vec<SysUserRoleActiveModel> = new_role_ids
+                .iter()
+                .map(|role_id| SysUserRoleActiveModel {
+                    user_id: Set(user_id.clone()),
+                    role_id: Set(role_id.clone()),
+                })
+                .collect();
+
+            SysUserRole::insert_many(user_roles)
+                .exec(&txn)
+                .await
+                .map_err(AppError::from)?;
+        }
+
+        if !role_ids_to_delete.is_empty() {
+            SysUserRole::delete_many()
+                .filter(
+                    SysUserRoleColumn::UserId
+                        .eq(&user_id)
+                        .and(SysUserRoleColumn::RoleId.is_in(role_ids_to_delete.clone())),
+                )
+                .exec(&txn)
+                .await
+                .map_err(AppError::from)?;
+        }
+
+        // Constitution II：新寫入路徑必含 audit。payload before/after 為角色 code 集合。
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_user_role",
+                entity_id: user_id.clone(),
+                payload_before: Some(serde_json::json!({ "roleIds": existing_role_ids })),
+                payload_after: Some(serde_json::json!({ "roleIds": target_role_ids })),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(())
+    }
+
+    async fn get_role_codes_for_users(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<std::collections::HashMap<String, Vec<String>>, AppError> {
+        use std::collections::HashMap;
+
+        let mut result: HashMap<String, Vec<String>> = HashMap::new();
+        if user_ids.is_empty() {
+            return Ok(result);
+        }
+
+        let db = db_helper::get_db_connection().await?;
+
+        // 一次撈清單所有 user 的關聯（sys_user_role JOIN sys_role 取 role code），記憶體 group by。
+        let pairs: Vec<(String, String)> = SysUserRole::find()
+            .select_only()
+            .column(SysUserRoleColumn::UserId)
+            .column(SysRoleColumn::Code)
+            .join(JoinType::InnerJoin, SysUserRoleRelation::SysRole.def())
+            .filter(SysUserRoleColumn::UserId.is_in(user_ids))
+            .into_tuple()
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+
+        for (user_id, role_code) in pairs {
+            result.entry(user_id).or_default().push(role_code);
+        }
+
+        Ok(result)
     }
 }

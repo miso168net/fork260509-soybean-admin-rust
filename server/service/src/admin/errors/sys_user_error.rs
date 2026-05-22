@@ -14,6 +14,8 @@ pub enum UserError {
     UsernameAlreadyExists,
     #[error("Invalid user status")]
     InvalidUserStatus,
+    #[error("One or more role codes are invalid")]
+    InvalidRoleCode,
 }
 
 impl ApiError for UserError {
@@ -24,6 +26,7 @@ impl ApiError for UserError {
             UserError::AuthenticationFailed => code::CODE_USER_AUTHENTICATION_FAILED,
             UserError::UsernameAlreadyExists => code::CODE_USER_USERNAME_ALREADY_EXISTS,
             UserError::InvalidUserStatus => code::CODE_USER_INVALID_STATUS,
+            UserError::InvalidRoleCode => code::CODE_VALIDATION_FORMAT_INVALID,
         }
     }
 
