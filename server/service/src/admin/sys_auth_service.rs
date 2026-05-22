@@ -404,7 +404,7 @@ impl SysAuthService {
         audit_log::write_in_txn(
             &txn,
             AuditEvent {
-                actor: actor.clone(),
+                actor,
                 operation: AuditOperation::Update,
                 entity_type: "sys_user",
                 entity_id: updated_user.id.clone(),
