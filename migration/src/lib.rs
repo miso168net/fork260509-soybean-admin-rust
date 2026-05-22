@@ -62,6 +62,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260522_d_wfw3_role_alias_seed::Migration),
             // W-FW4 role-authorization-wiring: 2 條角色菜單授權 alias Casbin policy seed(4 row)
             Box::new(datas::m20260522_e_wfw4_role_auth_alias_seed::Migration),
+            // W-FW5 user-role-and-password-wiring: /auth/changePassword 3-role Casbin policy seed(3 row)
+            Box::new(datas::m20260523_b_wfw5_change_password_seed::Migration),
         ]
     }
 }

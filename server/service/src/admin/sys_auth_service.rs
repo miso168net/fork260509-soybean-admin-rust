@@ -3,8 +3,8 @@ use std::any::Any;
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, JoinType,
+    QueryFilter, QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
     sea_query::Expr,
 };
 use server_constant::definition::{
@@ -12,6 +12,7 @@ use server_constant::definition::{
     Audience,
 };
 use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
     auth::Claims,
     code,
     error::AppError,
@@ -19,6 +20,8 @@ use server_core::web::{
 };
 use server_global::global;
 use server_model::admin::{
+    audit_log,
+    audit_serialize::audit_snapshot,
     entities::{
         sea_orm_active_enums::Status,
         sys_role_menu::{Column as SysRoleMenuColumn, Entity as SysRoleMenuEntity},
@@ -357,6 +360,65 @@ impl SysAuthService {
 
         // Step 8: Return new token pair
         Ok(auth_output)
+    }
+
+    /// W-FW5 US3: 自助改密碼 — 驗舊密碼 → hash 新密碼 → 同 txn update + audit。
+    ///
+    /// 舊密碼錯誤 → `UserError::WrongPassword`（對應 spec edge case E-5）。
+    pub async fn change_password(
+        &self,
+        user_id: &str,
+        current_password: &str,
+        new_password: &str,
+        actor: &Actor,
+    ) -> Result<bool, AppError> {
+        let db = db_helper::get_db_connection().await?;
+
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        let before = sys_user::find_active()
+            .filter(SysUserColumn::Id.eq(user_id))
+            .one(&txn)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(UserError::UserNotFound))?;
+
+        // 驗舊密碼（錯誤 → WrongPassword、對應 spec E-5）
+        if !SecureUtil::verify_password(current_password.as_bytes(), &before.password)
+            .map_err(|_| AppError::from(UserError::AuthenticationFailed))?
+        {
+            txn.rollback().await.ok();
+            return Err(AppError::from(UserError::WrongPassword));
+        }
+
+        // hash 新密碼
+        let hashed = SecureUtil::hash_password(new_password.as_bytes()).map_err(|e| AppError {
+            code: code::CODE_SERVER_INTERNAL_ERROR,
+            message: format!("password hash failed: {}", e),
+        })?;
+
+        let mut user = before.clone().into_active_model();
+        user.password = Set(hashed);
+        let updated_user = user.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor: actor.clone(),
+                operation: AuditOperation::Update,
+                entity_type: "sys_user",
+                entity_id: updated_user.id.clone(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_user)),
+                description: Some("self-service change password".to_string()),
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(true)
     }
 
     /// 验证用户身份

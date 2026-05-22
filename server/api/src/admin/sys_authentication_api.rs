@@ -9,14 +9,15 @@ use axum_casbin::CasbinAxumLayer;
 use axum_extra::{headers::UserAgent, TypedHeader};
 use serde_json::json;
 use server_core::web::{
-    auth::User, error::AppError, res::Res, util::ClientIp, validator::ValidatedForm, RequestId,
+    audit::Actor, auth::User, error::AppError, res::Res, util::ClientIp, validator::ValidatedForm,
+    RequestId,
 };
 use server_service::{
     admin::{
         dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AssignUserDto,
-        AuthErrorQuery, AuthOutput, LoginInput, RefreshTokenInput, SendCaptchaInput, SysAuthService,
-        SysAuthorizationService, TAuthService, TAuthorizationService, UserInfoOutput, UserRoute,
-        VerifyCaptchaInput,
+        AuthErrorQuery, AuthOutput, ChangePasswordInput, LoginInput, RefreshTokenInput,
+        SendCaptchaInput, SysAuthService, SysAuthorizationService, TAuthService,
+        TAuthorizationService, UserInfoOutput, UserRoute, VerifyCaptchaInput,
     },
     Audience,
 };
@@ -166,6 +167,25 @@ impl SysAuthenticationApi {
             .assign_users(input.role_id, input.user_ids)
             .await?;
         Ok(Res::new_data(()))
+    }
+
+    /// W-FW5 US3: 自助改密碼 handler — `Extension<User>` 取「我是誰」，
+    /// 驗舊密碼後改自己的密碼。
+    pub async fn change_password(
+        Extension(user): Extension<User>,
+        Extension(service): Extension<Arc<SysAuthService>>,
+        ValidatedForm(input): ValidatedForm<ChangePasswordInput>,
+    ) -> Result<Res<bool>, AppError> {
+        let actor = Actor::from(&user);
+        service
+            .change_password(
+                &user.user_id(),
+                &input.current_password,
+                &input.new_password,
+                &actor,
+            )
+            .await
+            .map(Res::new_data)
     }
 
     // F11 extracted-stubs: 3 個 stub handler(per spec FR-001 / FR-002 / FR-003）

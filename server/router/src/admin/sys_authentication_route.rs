@@ -47,6 +47,13 @@ impl SysAuthenticationRouter {
                 service_name,
                 "演示错误回显",
             ),
+            // W-FW5 US3: 自助改密碼
+            RouteInfo::new(
+                &format!("{}/changePassword", base_path),
+                Method::POST,
+                service_name,
+                "修改密码",
+            ),
         ];
 
         for route in routes {
@@ -57,7 +64,11 @@ impl SysAuthenticationRouter {
             .route("/getUserInfo", get(SysAuthenticationApi::get_user_info))
             .route("/sendCaptcha", post(SysAuthenticationApi::send_captcha))
             .route("/verifyCaptcha", post(SysAuthenticationApi::verify_captcha))
-            .route("/error", get(SysAuthenticationApi::auth_error));
+            .route("/error", get(SysAuthenticationApi::auth_error))
+            .route(
+                "/changePassword",
+                post(SysAuthenticationApi::change_password),
+            );
 
         Router::new().nest(base_path, router)
     }

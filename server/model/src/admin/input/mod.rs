@@ -1,5 +1,8 @@
 pub use sys_access_key::{AccessKeyPageRequest, CreateAccessKeyInput};
-pub use sys_authentication::{AuthErrorQuery, LoginInput, RefreshTokenInput, SendCaptchaInput, VerifyCaptchaInput};
+pub use sys_authentication::{
+    AuthErrorQuery, ChangePasswordInput, LoginInput, RefreshTokenInput, SendCaptchaInput,
+    VerifyCaptchaInput,
+};
 pub use sys_authorization::{AssignPermissionDto, AssignRouteDto, AssignUserDto};
 pub use sys_domain::{CreateDomainInput, DomainPageRequest, UpdateDomainInput};
 pub use sys_endpoint::EndpointPageRequest;
