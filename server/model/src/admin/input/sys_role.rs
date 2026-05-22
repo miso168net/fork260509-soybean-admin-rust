@@ -60,7 +60,7 @@ pub struct SystemManageAddRoleInput {
 pub struct SystemManageUpdateRoleInput {
     pub id: String,
     pub role_name: String,
-    pub role_code: String,
+    pub role_code: String, // FR-007 code-lock：收下但刻意不使用，code 沿用該角色既有值
     pub role_desc: Option<String>,
     pub status: String,
 }

@@ -227,7 +227,7 @@ impl SysSystemManageApi {
         Json(input): Json<SystemManageAddRoleInput>,
     ) -> Result<Res<SysRoleModel>, AppError> {
         let actor = Actor::from(&user);
-        let create_input: CreateRoleInput = RoleInput {
+        let create_input = CreateRoleInput {
             // R-Q1 root convention：base-web 角色頁是扁平表格，新角色一律掛 root
             pid: "0".to_string(),
             code: input.role_code,
