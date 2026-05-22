@@ -192,7 +192,10 @@ impl SysSystemManageRouter {
                 "/getRoleMenuIds/{roleId}",
                 get(SysSystemManageApi::get_role_menu_ids_for_systemmanage),
             )
-            .route("/assignRoleMenus", post(SysSystemManageApi::assign_role_menus_for_systemmanage));
+            .route(
+                "/assignRoleMenus",
+                post(SysSystemManageApi::assign_role_menus_for_systemmanage),
+            );
 
         Router::new().nest(Self::BASE_PATH, router)
     }

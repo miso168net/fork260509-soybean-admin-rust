@@ -237,7 +237,7 @@ impl TAuthorizationService for SysAuthorizationService {
             .await
             .map_err(AppError::from)?;
 
-        if routes.is_empty() {
+        if !route_ids.is_empty() && routes.is_empty() {
             return Err(AuthorizationError::RoutesNotFound.into());
         }
 
