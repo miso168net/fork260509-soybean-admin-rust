@@ -353,7 +353,7 @@ impl TUserService for SysUserService {
                 .map_err(AppError::from)?;
         }
 
-        // Constitution II：新寫入路徑必含 audit。payload before/after 為角色 code 集合。
+        // Constitution II：新寫入路徑必含 audit。payload before/after 為角色 id 集合（key roleIds）。
         audit_log::write_in_txn(
             &txn,
             AuditEvent {
@@ -388,12 +388,15 @@ impl TUserService for SysUserService {
         let db = db_helper::get_db_connection().await?;
 
         // 一次撈清單所有 user 的關聯（sys_user_role JOIN sys_role 取 role code），記憶體 group by。
+        // DeletedAt.is_null() 過濾與 assign_roles_to_user 走的 sys_role::find_active() 一致 ——
+        // 避免已軟刪 role 的殘留關聯出現在 getUserList 的 userRoles。
         let pairs: Vec<(String, String)> = SysUserRole::find()
             .select_only()
             .column(SysUserRoleColumn::UserId)
             .column(SysRoleColumn::Code)
             .join(JoinType::InnerJoin, SysUserRoleRelation::SysRole.def())
             .filter(SysUserRoleColumn::UserId.is_in(user_ids))
+            .filter(SysRoleColumn::DeletedAt.is_null())
             .into_tuple()
             .all(db.as_ref())
             .await
