@@ -9,6 +9,7 @@ use server_core::web::{
     error::AppError,
     page::PaginatedData,
 };
+use server_global::snowflake;
 use server_model::admin::{
     audit_log,
     audit_serialize::audit_snapshot,
@@ -163,6 +164,7 @@ impl TUserService for SysUserService {
 
         let user = SysUserActiveModel {
             id: Set(Ulid::new().to_string()),
+            display_id: Set(snowflake::next_display_id()),
             domain: Set(input.domain),
             username: Set(input.username),
             password: Set(SecureUtil::hash_password(input.password.as_bytes()).unwrap()),

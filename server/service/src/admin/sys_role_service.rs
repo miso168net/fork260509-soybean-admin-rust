@@ -4,7 +4,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DbBackend, PaginatorTrait,
     QueryFilter, Set, Statement, TransactionTrait,
 };
-use server_global::notify_casbin_changed;
+use server_global::{notify_casbin_changed, snowflake};
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
     error::AppError,
@@ -134,6 +134,7 @@ impl TRoleService for SysRoleService {
 
         let role = SysRoleActiveModel {
             id: Set(Ulid::new().to_string()),
+            display_id: Set(snowflake::next_display_id()),
             pid: Set(input.pid),
             code: Set(input.code),
             name: Set(input.name),

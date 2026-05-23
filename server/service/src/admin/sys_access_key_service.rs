@@ -14,7 +14,7 @@ use server_core::{
         page::PaginatedData,
     },
 };
-use server_global::project_info;
+use server_global::{project_info, snowflake};
 use server_model::admin::{
     audit_log,
     audit_serialize::audit_snapshot,
@@ -136,6 +136,7 @@ impl TAccessKeyService for SysAccessKeyService {
 
         let access_key = SysAccessKeyActiveModel {
             id: Set(Ulid::new().to_string()),
+            display_id: Set(snowflake::next_display_id()),
             domain: Set(input.domain),
             status: Set(input.status),
             description: Set(input.description),

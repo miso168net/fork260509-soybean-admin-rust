@@ -11,6 +11,7 @@ use super::sea_orm_active_enums::Status;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false, column_type = "Text")]
     pub id: String,
+    pub display_id: i64,
     #[sea_orm(column_type = "Text", unique)]
     pub code: String,
     #[sea_orm(column_type = "Text")]

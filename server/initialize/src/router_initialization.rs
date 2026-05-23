@@ -12,6 +12,7 @@ use server_core::sign::{
 };
 use server_core::web::{RequestId, RequestIdLayer};
 use server_global::global::{clear_routes, get_collected_routes, get_config};
+use server_global::snowflake;
 use server_middleware::jwt_auth_middleware;
 use server_router::admin::{
     SysAccessKeyRouter, SysAuthenticationRouter, SysDomainRouter, SysEndpointRouter,
@@ -387,6 +388,7 @@ async fn process_collected_routes() {
             let resource = route.path.split('/').nth(1).unwrap_or("").to_string();
             SysEndpoint {
                 id: generate_id(&route.path, &route.method.to_string()),
+                display_id: snowflake::next_display_id(),
                 path: route.path.clone(),
                 method: route.method.to_string(),
                 action: "rw".to_string(),
