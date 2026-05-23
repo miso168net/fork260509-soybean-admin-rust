@@ -9,51 +9,71 @@ use server_core::web::{
     validator::ValidatedForm,
 };
 use server_service::admin::{
-    CreateRoleInput, RolePageRequest, SysRoleModel, SysRoleService, TRoleService, UpdateRoleInput,
+    CreateRoleInput, RoleDetail, RolePageRequest, SysRoleService, TRoleService, UpdateRoleInput,
 };
 
 pub struct SysRoleApi;
 
 impl SysRoleApi {
+    /// 040 T010 W-FW9: return type `Res<PaginatedData<SysRoleModel>>` → `Res<PaginatedData<RoleDetail>>`；
+    /// records 逐筆 `RoleDetail::from`，page meta (current/size/total) 保留。
     pub async fn get_paginated_roles(
         Query(params): Query<RolePageRequest>,
         Extension(service): Extension<Arc<SysRoleService>>,
-    ) -> Result<Res<PaginatedData<SysRoleModel>>, AppError> {
+    ) -> Result<Res<PaginatedData<RoleDetail>>, AppError> {
         service
             .find_paginated_roles(params)
             .await
+            .map(|page| PaginatedData {
+                current: page.current,
+                size: page.size,
+                total: page.total,
+                records: page.records.into_iter().map(RoleDetail::from).collect(),
+            })
             .map(Res::new_data)
     }
 
+    /// 040 T010 W-FW9: return type `Res<SysRoleModel>` → `Res<RoleDetail>`。
     pub async fn create_role(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateRoleInput>,
-    ) -> Result<Res<SysRoleModel>, AppError> {
+    ) -> Result<Res<RoleDetail>, AppError> {
         let actor = Actor::from(&user);
-        service.create_role(input, &actor).await.map(Res::new_data)
+        service
+            .create_role(input, &actor)
+            .await
+            .map(RoleDetail::from)
+            .map(Res::new_data)
     }
 
     /// 039 T028: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
+    /// 040 T010 W-FW9: return type `Res<SysRoleModel>` → `Res<RoleDetail>`。
     pub async fn get_role(
         Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysRoleService>>,
-    ) -> Result<Res<SysRoleModel>, AppError> {
+    ) -> Result<Res<RoleDetail>, AppError> {
         let role_ulid = service.lookup_ulid_by_display_id(display_id).await?;
-        service.get_role(&role_ulid).await.map(Res::new_data)
+        service
+            .get_role(&role_ulid)
+            .await
+            .map(RoleDetail::from)
+            .map(Res::new_data)
     }
 
     /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 service。
+    /// 040 T010 W-FW9: return type `Res<SysRoleModel>` → `Res<RoleDetail>`。
     pub async fn update_role(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateRoleInput>,
-    ) -> Result<Res<SysRoleModel>, AppError> {
+    ) -> Result<Res<RoleDetail>, AppError> {
         let actor = Actor::from(&user);
         let role_ulid = service.lookup_ulid_by_display_id(input.id).await?;
         service
             .update_role(&role_ulid, input, &actor)
             .await
+            .map(RoleDetail::from)
             .map(Res::new_data)
     }
 
@@ -70,9 +90,14 @@ impl SysRoleApi {
 
     // F9 systemManage-alias-router: GET /systemManage/getAllRoles
     // 取所有 enabled + active 角色（無分頁），base-web role-select 下拉用
+    /// 040 T010 W-FW9: return type `Res<Vec<SysRoleModel>>` → `Res<Vec<RoleDetail>>`。
     pub async fn get_all_roles(
         Extension(service): Extension<Arc<SysRoleService>>,
-    ) -> Result<Res<Vec<SysRoleModel>>, AppError> {
-        service.find_all_enabled().await.map(Res::new_data)
+    ) -> Result<Res<Vec<RoleDetail>>, AppError> {
+        service
+            .find_all_enabled()
+            .await
+            .map(|v| v.into_iter().map(RoleDetail::from).collect::<Vec<_>>())
+            .map(Res::new_data)
     }
 }

@@ -97,3 +97,26 @@ impl From<SysUserModel> for UserDetail {
         }
     }
 }
+
+/// 040 T011: sys_user service 既有路徑回 `UserWithoutPassword`（非 raw `SysUserModel`）。
+/// 為讓 raw endpoint handler 能 `.map(UserDetail::from)` wrap，補一條等價 From。
+/// 兩 struct 欄位 1:1 對齊（同 13 欄、id 已是 i64）；純 field move、零轉換。
+impl From<UserWithoutPassword> for UserDetail {
+    fn from(u: UserWithoutPassword) -> Self {
+        Self {
+            id: u.id,
+            domain: u.domain,
+            username: u.username,
+            nick_name: u.nick_name,
+            avatar: u.avatar,
+            email: u.email,
+            phone_number: u.phone_number,
+            status: u.status,
+            gender: u.gender,
+            created_at: u.created_at,
+            created_by: u.created_by,
+            updated_at: u.updated_at,
+            updated_by: u.updated_by,
+        }
+    }
+}

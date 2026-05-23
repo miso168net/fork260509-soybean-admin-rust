@@ -13,27 +13,40 @@ use server_core::web::{
 use server_global::notify_casbin_changed;
 use server_service::admin::{
     BatchDeleteUserInput, CreateUserInput, DeleteUserByBodyInput, SysUserService, TUserService,
-    UpdateUserInput, UserPageRequest, UserWithoutPassword,
+    UpdateUserInput, UserDetail, UserPageRequest,
 };
 
 pub struct SysUserApi;
 
 impl SysUserApi {
+    /// 040 T011 W-FW9: return type `Res<Vec<UserWithoutPassword>>` → `Res<Vec<UserDetail>>`。
     pub async fn get_all_users(
         Extension(service): Extension<Arc<SysUserService>>,
-    ) -> Result<Res<Vec<UserWithoutPassword>>, AppError> {
-        service.find_all().await.map(Res::new_data)
+    ) -> Result<Res<Vec<UserDetail>>, AppError> {
+        service
+            .find_all()
+            .await
+            .map(|v| v.into_iter().map(UserDetail::from).collect::<Vec<_>>())
+            .map(Res::new_data)
     }
 
+    /// 040 T011 W-FW9: return type `Res<PaginatedData<UserWithoutPassword>>` → `Res<PaginatedData<UserDetail>>`；
+    /// records 逐筆 `UserDetail::from`、page meta 保留。
     pub async fn get_paginated_users(
         Query(params): Query<UserPageRequest>,
         Extension(service): Extension<Arc<SysUserService>>,
         user: User,
-    ) -> Result<Res<PaginatedData<UserWithoutPassword>>, AppError> {
+    ) -> Result<Res<PaginatedData<UserDetail>>, AppError> {
         print!("user is {:#?}", user);
         service
             .find_paginated_users(params)
             .await
+            .map(|page| PaginatedData {
+                current: page.current,
+                size: page.size,
+                total: page.total,
+                records: page.records.into_iter().map(UserDetail::from).collect(),
+            })
             .map(Res::new_data)
     }
 
@@ -69,35 +82,47 @@ impl SysUserApi {
         Res::new_data(true)
     }
 
+    /// 040 T011 W-FW9: return type `Res<UserWithoutPassword>` → `Res<UserDetail>`。
     pub async fn create_user(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<CreateUserInput>,
-    ) -> Result<Res<UserWithoutPassword>, AppError> {
+    ) -> Result<Res<UserDetail>, AppError> {
         let actor = Actor::from(&user);
-        service.create_user(input, &actor).await.map(Res::new_data)
+        service
+            .create_user(input, &actor)
+            .await
+            .map(UserDetail::from)
+            .map(Res::new_data)
     }
 
     /// 039 T029: Path<String> → Path<i64> + user_svc.lookup_ulid_by_display_id cascade。
+    /// 040 T011 W-FW9: return type `Res<UserWithoutPassword>` → `Res<UserDetail>`。
     pub async fn get_user(
         Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysUserService>>,
-    ) -> Result<Res<UserWithoutPassword>, AppError> {
+    ) -> Result<Res<UserDetail>, AppError> {
         let user_ulid = service.lookup_ulid_by_display_id(display_id).await?;
-        service.get_user(&user_ulid).await.map(Res::new_data)
+        service
+            .get_user(&user_ulid)
+            .await
+            .map(UserDetail::from)
+            .map(Res::new_data)
     }
 
     /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 service。
+    /// 040 T011 W-FW9: return type `Res<UserWithoutPassword>` → `Res<UserDetail>`。
     pub async fn update_user(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateUserInput>,
-    ) -> Result<Res<UserWithoutPassword>, AppError> {
+    ) -> Result<Res<UserDetail>, AppError> {
         let actor = Actor::from(&user);
         let user_ulid = service.lookup_ulid_by_display_id(input.id).await?;
         service
             .update_user(&user_ulid, input, &actor)
             .await
+            .map(UserDetail::from)
             .map(Res::new_data)
     }
 
