@@ -80,12 +80,13 @@ pub struct BatchDeleteRoleInput {
 }
 
 // W-FW4 systemManage: POST /systemManage/assignRoleMenus payload
-// role_id 為 ULID 字串；menu_ids 為真 i32（對應 sys_menu.id PK）。
+// 039: role_id 改 numeric display_id（i64）；menu_ids 維持 i32（sys_menu.id PK）。
 // 讀 alias(getRoleMenuIds)走 path param，無 body DTO。
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct AssignRoleMenusInput {
-    pub role_id: String,
+    #[validate(range(min = 1, message = "Role ID must be positive"))]
+    pub role_id: i64,
     pub menu_ids: Vec<i32>,
 }
 
@@ -95,8 +96,9 @@ pub struct AssignRoleMenusInput {
 #[derive(Debug, Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRoleHomeInput {
-    #[validate(length(min = 1, message = "Role ID must not be empty"))]
-    pub role_id: String,
+    // 039: role_id 改 numeric display_id（i64）
+    #[validate(range(min = 1, message = "Role ID must be positive"))]
+    pub role_id: i64,
     /// None / Some("") 皆視為「明示清除 home」, 持久化為 NULL
     pub home: Option<String>,
 }

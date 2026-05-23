@@ -60,6 +60,12 @@ pub trait TRoleService {
         input: UpdateRoleHomeInput,
         actor: &Actor,
     ) -> Result<(), AppError>;
+
+    /// 039 rust-entity-id-numeric-migration C3: by-display_id lookup helper。
+    /// base-web 對外傳 numeric display_id；rust 內部 PK/FK 仍走 ULID 字串。
+    /// handler 收 Path<i64> 後第一步透過本方法解析回 ULID，再走後續 service 既有路徑。
+    /// 軟刪資料不可解析（find_active() filter DeletedAt.is_null）。
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError>;
 }
 
 #[derive(Clone)]
@@ -286,11 +292,15 @@ impl TRoleService for SysRoleService {
         actor: &Actor,
     ) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
+
+        // 039 cascade: input.role_id 改 i64 display_id；先解析回 ULID 再走後續既有路徑
+        let role_ulid = self.lookup_ulid_by_display_id(input.role_id).await?;
+
         let txn = db.begin().await.map_err(AppError::from)?;
 
         // fetch before snapshot（active row state；audit + RoleNotFound 共用）
         let before = sys_role::find_active()
-            .filter(SysRoleColumn::Id.eq(&input.role_id))
+            .filter(SysRoleColumn::Id.eq(&role_ulid))
             .one(&txn)
             .await
             .map_err(AppError::from)?
@@ -344,5 +354,16 @@ impl TRoleService for SysRoleService {
 
         txn.commit().await.map_err(AppError::from)?;
         Ok(())
+    }
+
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let role = sys_role::find_active()
+            .filter(SysRoleColumn::DisplayId.eq(display_id))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(RoleError::RoleNotFound))?;
+        Ok(role.id)
     }
 }

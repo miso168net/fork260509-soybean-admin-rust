@@ -410,7 +410,8 @@ impl SysSystemManageApi {
                                     _ => format!("{} {}", ep.method, ep.path),
                                 };
                                 EndpointTreeNode {
-                                    key: ep.id.clone(),
+                                    // 039: NTree key 仍為 String，但 base-web 對外傳遞 endpoint id 已改 numeric display_id
+                                    key: ep.display_id.to_string(),
                                     label,
                                     children: None,
                                     method: Some(ep.method.clone()),

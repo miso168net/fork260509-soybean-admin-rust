@@ -18,7 +18,7 @@ use crate::admin::output::{sys_menu::MenuTree, sys_user::UserWithoutPassword};
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageRoleOutput {
-    pub id: String,
+    pub id: i64,
     pub role_name: String,
     pub role_code: String,
     pub role_desc: String,
@@ -32,7 +32,7 @@ pub struct SystemManageRoleOutput {
 impl From<sys_role::Model> for SystemManageRoleOutput {
     fn from(m: sys_role::Model) -> Self {
         Self {
-            id: m.id,
+            id: m.display_id,
             role_name: m.name,
             role_code: m.code,
             role_desc: m.description.unwrap_or_default(),
@@ -49,7 +49,7 @@ impl From<sys_role::Model> for SystemManageRoleOutput {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageAllRoleOutput {
-    pub id: String,
+    pub id: i64,
     pub role_name: String,
     pub role_code: String,
 }
@@ -57,7 +57,7 @@ pub struct SystemManageAllRoleOutput {
 impl From<sys_role::Model> for SystemManageAllRoleOutput {
     fn from(m: sys_role::Model) -> Self {
         Self {
-            id: m.id,
+            id: m.display_id,
             role_name: m.name,
             role_code: m.code,
         }
@@ -68,7 +68,7 @@ impl From<sys_role::Model> for SystemManageAllRoleOutput {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageUserOutput {
-    pub id: String,
+    pub id: i64,
     pub user_name: String,
     pub user_gender: Option<String>,
     pub nick_name: String,

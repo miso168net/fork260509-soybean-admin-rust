@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 
 use async_trait::async_trait;
 use chrono::Local;
@@ -22,7 +23,18 @@ use server_model::admin::{
     output::EndpointTree,
 };
 
+use super::sys_endpoint_error::EndpointError;
 use crate::helper::db_helper;
+
+/// 039 EndpointTree synthetic group id：controller 名稱 hash → 負 i64 sentinel。
+/// 前端 button-auth-modal 只用 leaf endpoint display_id，group 節點 id 僅作為 NTree key 區分。
+fn synthetic_group_id(controller: &str) -> i64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    controller.hash(&mut hasher);
+    // 取低 63 bit 後加負號 → 永遠 < 0、區隔 Snowflake-generated display_id（永遠 > 0）
+    let h = hasher.finish() & 0x7FFF_FFFF_FFFF_FFFF;
+    -(h as i64) - 1
+}
 
 #[async_trait]
 pub trait TEndpointService {
@@ -33,6 +45,12 @@ pub trait TEndpointService {
     ) -> Result<PaginatedData<SysEndpointModel>, AppError>;
 
     async fn tree_endpoint(&self) -> Result<Vec<EndpointTree>, AppError>;
+
+    /// 039 rust-entity-id-numeric-migration C3: by-display_id lookup helper。
+    /// base-web 對外傳 numeric display_id；rust 內部 PK/FK 仍走 ULID 字串。
+    /// handler 收 Path<i64> 後第一步透過本方法解析回 ULID，再走後續 service 既有路徑。
+    /// 軟刪資料不可解析（find_active() filter DeletedAt.is_null）。
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError>;
 }
 
 pub struct SysEndpointService;
@@ -131,7 +149,9 @@ impl SysEndpointService {
                 controller_map
                     .entry(controller.clone())
                     .or_insert(EndpointTree {
-                        id: format!("controller-{}", controller),
+                        // 039: 合成 controller group 節點無 endpoint display_id；
+                        // 取 controller 名稱 hash 後映為負 i64 sentinel（前端只用 leaf 節點 id）
+                        id: synthetic_group_id(&controller),
                         path: String::new(),
                         method: String::new(),
                         action: String::new(),
@@ -143,7 +163,7 @@ impl SysEndpointService {
 
             if let Some(children) = &mut controller_node.children {
                 children.push(EndpointTree {
-                    id: endpoint.id.to_string(),
+                    id: endpoint.display_id,
                     path: endpoint.path.clone(),
                     method: endpoint.method.clone(),
                     action: endpoint.action.clone(),
@@ -245,5 +265,16 @@ impl TEndpointService for SysEndpointService {
             .map_err(AppError::from)?;
 
         Ok(self.create_endpoint_tree(&endpoints))
+    }
+
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let endpoint = sys_endpoint::find_active()
+            .filter(SysEndpointColumn::DisplayId.eq(display_id))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(EndpointError::EndpointNotFound))?;
+        Ok(endpoint.id)
     }
 }

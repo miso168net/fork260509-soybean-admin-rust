@@ -45,6 +45,12 @@ pub trait TAccessKeyService {
     async fn delete_access_key(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 
     async fn initialize_access_key(&self) -> Result<(), AppError>;
+
+    /// 039 rust-entity-id-numeric-migration C3: by-display_id lookup helper。
+    /// base-web 對外傳 numeric display_id；rust 內部 PK/FK 仍走 ULID 字串。
+    /// handler 收 Path<i64> 後第一步透過本方法解析回 ULID，再走後續 service 既有路徑。
+    /// 軟刪資料不可解析（find_active() filter DeletedAt.is_null）。
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError>;
 }
 
 #[derive(Clone)]
@@ -210,6 +216,17 @@ impl TAccessKeyService for SysAccessKeyService {
         }
 
         Ok(())
+    }
+
+    async fn lookup_ulid_by_display_id(&self, display_id: i64) -> Result<String, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let key = sys_access_key::find_active()
+            .filter(SysAccessKeyColumn::DisplayId.eq(display_id))
+            .one(db.as_ref())
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(AccessKeyError::AccessKeyNotFound))?;
+        Ok(key.id)
     }
 }
 

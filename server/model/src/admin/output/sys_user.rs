@@ -22,7 +22,7 @@ pub struct UserWithDomainAndOrgOutput {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserWithoutPassword {
-    pub id: String,
+    pub id: i64,
     pub domain: String,
     pub username: String,
     pub nick_name: String,
@@ -40,7 +40,7 @@ pub struct UserWithoutPassword {
 impl From<SysUserModel> for UserWithoutPassword {
     fn from(model: SysUserModel) -> Self {
         Self {
-            id: model.id,
+            id: model.display_id,
             domain: model.domain,
             username: model.username,
             nick_name: model.nick_name,
