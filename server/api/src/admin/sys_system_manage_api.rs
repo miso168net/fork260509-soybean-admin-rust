@@ -4,24 +4,28 @@
 //! W-FW1: add/update user transform handlers (base-web shape → backend domain shape).
 //! W-FW2: add/update/delete/batchDelete menu transform handlers (base-web shape → backend domain shape).
 //! W-FW4: getRoleMenuIds/assignRoleMenus 角色菜單授權 alias handlers (domain 由 JWT actor 注入).
+//! W-FW8 US1: getAllEndpoints / getRoleEndpointIds/:roleId / assignRoleEndpoints transform handlers.
 
 use std::sync::Arc;
 
 use axum::{extract::{Path, Query}, Extension, Json};
+use axum_casbin::{casbin::MgmtApi, CasbinAxumLayer};
 use serde_json::{json, Value};
 use server_core::web::{audit::Actor, auth::User, code, error::AppError, page::PaginatedData, res::Res};
+use server_model::admin::facade::sys_endpoint;
 use server_service::admin::{
     AssignRoleMenusInput, BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput,
-    CreateUserInput, DeleteMenuByBodyInput, DeleteRoleByBodyInput, Gender, MenuInput, MenuType,
-    RoleInput, RolePageRequest, Status, SysAuthorizationService, SysMenuModel, SysMenuService,
-    SysRoleModel, SysRoleService, SysUserService, SystemManageAddMenuInput,
+    CreateUserInput, DeleteMenuByBodyInput, DeleteRoleByBodyInput, EndpointTreeNode, Gender,
+    MenuInput, MenuType, RoleInput, RolePageRequest, Status, SysAuthorizationService, SysMenuModel,
+    SysMenuService, SysRoleModel, SysRoleService, SysUserService, SystemManageAddMenuInput,
     SystemManageAddRoleInput, SystemManageAddUserInput, SystemManageAllRoleOutput,
-    SystemManageMenuOutput, SystemManageMenuTreeNodeOutput, SystemManageRoleOutput,
-    SystemManageUpdateMenuInput, SystemManageUpdateRoleInput, SystemManageUpdateUserInput,
-    SystemManageUserOutput, TAuthorizationService, TMenuService, TRoleService, TUserService,
-    UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput, UpdateUserInput, UserPageRequest,
-    UserWithoutPassword,
+    SystemManageAssignRoleEndpointsInput, SystemManageMenuOutput, SystemManageMenuTreeNodeOutput,
+    SystemManageRoleOutput, SystemManageUpdateMenuInput, SystemManageUpdateRoleInput,
+    SystemManageUpdateUserInput, SystemManageUserOutput, TAuthorizationService, TMenuService,
+    TRoleService, TUserService, UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput,
+    UpdateUserInput, UserPageRequest, UserWithoutPassword,
 };
+use server_service::helper::db_helper;
 
 pub struct SysSystemManageApi;
 
@@ -370,6 +374,123 @@ impl SysSystemManageApi {
         let actor = Actor::from(&user);
         service
             .update_role_home(input, &actor)
+            .await
+            .map(|_| Res::new_data(true))
+    }
+
+    /// W-FW8 US1 transform: GET /systemManage/getAllEndpoints
+    /// 回 NTree-friendly tree（按 resource 分組、leaf label = `{summary}（{method}）` 或 fallback `{method} {path}`）。
+    pub async fn get_all_endpoints_for_systemmanage(
+        Extension(_user): Extension<User>,
+    ) -> Result<Res<Vec<EndpointTreeNode>>, AppError> {
+        use std::collections::BTreeMap;
+        let db = db_helper::get_db_connection().await?;
+        let endpoints = sys_endpoint::find_active()
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+
+        let mut by_resource: BTreeMap<String, Vec<sys_endpoint::Model>> = BTreeMap::new();
+        for ep in endpoints {
+            by_resource.entry(ep.resource.clone()).or_default().push(ep);
+        }
+
+        let tree: Vec<EndpointTreeNode> = by_resource
+            .into_iter()
+            .map(|(resource, mut eps)| {
+                eps.sort_by(|a, b| a.path.cmp(&b.path).then(a.method.cmp(&b.method)));
+                EndpointTreeNode {
+                    key: format!("resource:{}", resource),
+                    label: resource.clone(),
+                    children: Some(
+                        eps.into_iter()
+                            .map(|ep| {
+                                let label = match ep.summary.as_deref() {
+                                    Some(s) if !s.is_empty() => format!("{}（{}）", s, ep.method),
+                                    _ => format!("{} {}", ep.method, ep.path),
+                                };
+                                EndpointTreeNode {
+                                    key: ep.id.clone(),
+                                    label,
+                                    children: None,
+                                    method: Some(ep.method.clone()),
+                                    path: Some(ep.path.clone()),
+                                    is_leaf: true,
+                                }
+                            })
+                            .collect(),
+                    ),
+                    method: None,
+                    path: None,
+                    is_leaf: false,
+                }
+            })
+            .collect();
+
+        Ok(Res::new_data(tree))
+    }
+
+    /// W-FW8 US1 transform: GET /systemManage/getRoleEndpointIds/:roleId
+    /// 反查 role 已分配 endpoint.id 集合（從 Casbin policy v2/v3 reverse-map）。
+    pub async fn get_role_endpoint_ids_for_systemmanage(
+        Path(role_id): Path<String>,
+        Extension(user): Extension<User>,
+        Extension(role_service): Extension<Arc<SysRoleService>>,
+        Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
+    ) -> Result<Res<Vec<String>>, AppError> {
+        use std::collections::HashMap;
+
+        // 1. validate role + get role.code (RoleNotFound → 4001 既有 behavior)
+        let role = role_service.get_role(&role_id).await?;
+        let role_code = role.code;
+        let domain = user.domain().to_string();
+
+        // 2. fetch Casbin policy rows for this role/domain
+        let enforcer = cache_enforcer.get_enforcer();
+        let enforcer_read = enforcer.read().await;
+        let policies = enforcer_read.get_filtered_policy(0, vec![role_code, domain]);
+        drop(enforcer_read);
+
+        // 3. build (path, method) → endpoint.id map (R-Q3 in-memory optimization)
+        let db = db_helper::get_db_connection().await?;
+        let endpoints = sys_endpoint::find_active()
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+        let mut path_method_to_id: HashMap<(String, String), String> = HashMap::new();
+        for ep in &endpoints {
+            path_method_to_id.insert((ep.path.clone(), ep.method.clone()), ep.id.clone());
+        }
+
+        // 4. reverse-map policies → endpoint.ids, dedup + sort
+        let mut ids: Vec<String> = policies
+            .into_iter()
+            .filter_map(|p| {
+                let v2 = p.get(2)?.clone();
+                let v3 = p.get(3)?.clone();
+                path_method_to_id.get(&(v2, v3)).cloned()
+            })
+            .collect();
+        ids.sort();
+        ids.dedup();
+
+        Ok(Res::new_data(ids))
+    }
+
+    /// W-FW8 US1 transform: POST /systemManage/assignRoleEndpoints
+    /// 透過既有 assign_permission service 寫 Casbin policy；audit 由 service-side 補（US2 phase）。
+    /// 注：T002+T003 已把 assign_permission signature 末尾改 `actor: &Actor`。
+    pub async fn assign_role_endpoints_for_systemmanage(
+        Extension(user): Extension<User>,
+        Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
+        Json(input): Json<SystemManageAssignRoleEndpointsInput>,
+    ) -> Result<Res<bool>, AppError> {
+        let actor = Actor::from(&user);
+        let domain = user.domain().to_string();
+        let enforcer = cache_enforcer.get_enforcer();
+        service
+            .assign_permission(domain, input.role_id, input.endpoint_ids, enforcer, &actor)
             .await
             .map(|_| Res::new_data(true))
     }

@@ -8,6 +8,7 @@ edition.workspace = true
 [dependencies]
 server-core = { path = "../core" }
 server-global = { path = "../global" }
+server-model = { path = "../model" }
 server-service = { path = "../service" }
 axum-casbin = { path = "../../axum-casbin" }
 xdb = { path = "../../xdb" }
@@ -19,3 +20,5 @@ headers = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+# W-FW8 US1: 端點授權 transform handler 直連 sys_endpoint facade + DatabaseConnection
+sea-orm = { workspace = true }

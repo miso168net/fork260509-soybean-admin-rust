@@ -3,7 +3,9 @@ pub use sys_authentication::{
     AuthErrorQuery, ChangePasswordInput, LoginInput, RefreshTokenInput, SendCaptchaInput,
     VerifyCaptchaInput,
 };
-pub use sys_authorization::{AssignPermissionDto, AssignRouteDto, AssignUserDto};
+pub use sys_authorization::{
+    AssignPermissionDto, AssignRouteDto, AssignUserDto, SystemManageAssignRoleEndpointsInput,
+};
 pub use sys_domain::{CreateDomainInput, DomainPageRequest, UpdateDomainInput};
 pub use sys_endpoint::EndpointPageRequest;
 pub use sys_login_log::LoginLogPageRequest;

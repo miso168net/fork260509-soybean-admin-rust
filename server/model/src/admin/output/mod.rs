@@ -1,6 +1,6 @@
 pub use sys_authentication::{AuthOutput, UserInfoOutput, UserRoute};
 pub use sys_domain::DomainOutput;
-pub use sys_endpoint::EndpointTree;
+pub use sys_endpoint::{EndpointTree, EndpointTreeNode};
 pub use sys_menu::{MenuRoute, MenuTree, RouteMeta};
 pub use sys_system_manage::{
     SystemManageAllRoleOutput, SystemManageMenuOutput, SystemManageMenuTreeNodeOutput,

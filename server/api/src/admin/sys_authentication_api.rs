@@ -128,15 +128,18 @@ impl SysAuthenticationApi {
     /// 为角色分配权限
     ///
     /// 将指定的权限分配给指定域中的角色。
+    /// W-FW8 cascade: handler 注入 Actor 給 service。
     pub async fn assign_permission(
+        Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
         ValidatedForm(input): ValidatedForm<AssignPermissionDto>,
     ) -> Result<Res<()>, AppError> {
         let enforcer = cache_enforcer.get_enforcer();
+        let actor = Actor::from(&user);
 
         service
-            .assign_permission(input.domain, input.role_id, input.permissions, enforcer)
+            .assign_permission(input.domain, input.role_id, input.permissions, enforcer, &actor)
             .await?;
 
         Ok(Res::new_data(()))

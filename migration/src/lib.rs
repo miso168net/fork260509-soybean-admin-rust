@@ -70,6 +70,8 @@ impl MigratorTrait for Migrator {
             Box::new(schemas::m20260524_a_wfw6_add_home_to_sys_role::Migration),
             // W-FW6 role-authorization-completion (US1): 2 條 role-home alias endpoint Casbin policy seed(4 row)
             Box::new(datas::m20260524_b_wfw6_role_home_alias_seed::Migration),
+            // W-FW8 button-auth-completion (US1): 3 條 endpoint alias Casbin policy seed(6 row)
+            Box::new(datas::m20260524_c_wfw8_endpoint_alias_seed::Migration),
         ]
     }
 }

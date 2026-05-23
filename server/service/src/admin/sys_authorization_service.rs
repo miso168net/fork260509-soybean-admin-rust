@@ -60,6 +60,7 @@ pub trait TAuthorizationService: Send + Sync {
         role_id: String,
         permissions: Vec<String>,
         enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
+        actor: &Actor,
     ) -> Result<(), AppError>;
 
     /// 为角色分配路由
@@ -212,22 +213,94 @@ impl TAuthorizationService for SysAuthorizationService {
         role_id: String,
         permissions: Vec<String>,
         enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
+        actor: &Actor,
     ) -> Result<(), AppError> {
+        use std::collections::HashMap;
+
         let (domain_code, _, role_code) = self.check_domain_and_role(&domain, &role_id).await?;
 
         let db = db_helper::get_db_connection().await?;
-        let permissions = sys_endpoint::find_active()
-            .filter(SysEndpointColumn::Id.is_in(permissions))
+
+        // Filter input permissions to active endpoints. Empty input (spec E-4 clear-all)
+        // OR all-invalid filtered out → both result in empty Vec which sync_role_permissions
+        // handles correctly (removes all existing rows).
+        // Only reject if caller supplied non-empty list but ALL ids were bogus / soft-deleted
+        // (mirrors `assign_routes` body line 253: `if !route_ids.is_empty() && routes.is_empty()`).
+        let raw_input = permissions;
+        let valid_permissions = sys_endpoint::find_active()
+            .filter(SysEndpointColumn::Id.is_in(raw_input.clone()))
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;
 
-        if permissions.is_empty() {
+        if !raw_input.is_empty() && valid_permissions.is_empty() {
             return Err(AuthorizationError::PermissionsNotFound.into());
         }
 
-        self.sync_role_permissions(&role_code, &domain_code, permissions, enforcer)
+        // ---- W-FW8 US2 audit: snapshot existing endpoint_ids BEFORE sync ----
+        // Reverse-map existing Casbin policies → endpoint ids via in-memory HashMap (R-Q3 体例).
+        let existing_policies = {
+            let enforcer_read = enforcer.read().await;
+            enforcer_read.get_filtered_policy(0, vec![role_code.clone(), domain_code.clone()])
+        };
+        let all_active_endpoints = sys_endpoint::find_active()
+            .all(db.as_ref())
+            .await
+            .map_err(AppError::from)?;
+        let mut path_method_to_id: HashMap<(String, String), String> = HashMap::new();
+        for ep in &all_active_endpoints {
+            path_method_to_id.insert((ep.path.clone(), ep.method.clone()), ep.id.clone());
+        }
+        let mut existing_endpoint_ids: Vec<String> = existing_policies
+            .into_iter()
+            .filter_map(|p| {
+                let v2 = p.get(2)?.clone();
+                let v3 = p.get(3)?.clone();
+                path_method_to_id.get(&(v2, v3)).cloned()
+            })
+            .collect();
+        existing_endpoint_ids.sort();
+        existing_endpoint_ids.dedup();
+
+        // payload_after: actually-written endpoint ids (after soft-delete + bogus filter).
+        let mut new_endpoint_ids: Vec<String> =
+            valid_permissions.iter().map(|p| p.id.clone()).collect();
+        new_endpoint_ids.sort();
+        new_endpoint_ids.dedup();
+        // ---- end snapshot ----
+
+        self.sync_role_permissions(&role_code, &domain_code, valid_permissions, enforcer)
             .await?;
+
+        // ---- W-FW8 US2 audit: write in caller-opened txn AFTER sync succeeds ----
+        // sync_role_permissions writes via Casbin enforcer API (not Sea-ORM txn).
+        // We open a small db txn only for the audit insert; rollback only affects audit row.
+        // If audit insert fails after Casbin write succeeded, caller sees error; rare DB-error path.
+        let txn = db.begin().await.map_err(AppError::from)?;
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_role",
+                entity_id: role_id.clone(),
+                payload_before: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "domain": &domain_code,
+                    "endpointIds": &existing_endpoint_ids,
+                })),
+                payload_after: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "domain": &domain_code,
+                    "endpointIds": &new_endpoint_ids,
+                })),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+        txn.commit().await.map_err(AppError::from)?;
 
         Ok(())
     }

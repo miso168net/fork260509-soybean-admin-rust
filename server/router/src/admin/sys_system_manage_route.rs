@@ -154,6 +154,24 @@ impl SysSystemManageRouter {
                 role_service,
                 "更新角色首页路由",
             ),
+            RouteInfo::new(
+                &format!("{}/getAllEndpoints", base_path),
+                Method::GET,
+                role_service,
+                "获取所有端点（按业务领域分组）",
+            ),
+            RouteInfo::new(
+                &format!("{}/getRoleEndpointIds/:roleId", base_path),
+                Method::GET,
+                role_service,
+                "获取角色已分配端点ID集合",
+            ),
+            RouteInfo::new(
+                &format!("{}/assignRoleEndpoints", base_path),
+                Method::POST,
+                role_service,
+                "分配端点权限给角色",
+            ),
         ];
 
         for route in routes {
@@ -215,6 +233,18 @@ impl SysSystemManageRouter {
             .route(
                 "/updateRoleHome",
                 post(SysSystemManageApi::update_role_home_for_systemmanage),
+            )
+            .route(
+                "/getAllEndpoints",
+                get(SysSystemManageApi::get_all_endpoints_for_systemmanage),
+            )
+            .route(
+                "/getRoleEndpointIds/{roleId}",
+                get(SysSystemManageApi::get_role_endpoint_ids_for_systemmanage),
+            )
+            .route(
+                "/assignRoleEndpoints",
+                post(SysSystemManageApi::assign_role_endpoints_for_systemmanage),
             );
 
         Router::new().nest(Self::BASE_PATH, router)

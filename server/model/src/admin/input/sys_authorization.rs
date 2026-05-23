@@ -36,3 +36,15 @@ pub struct AssignUserDto {
     #[validate(length(min = 1, message = "Users array cannot be empty"))]
     pub user_ids: Vec<String>,
 }
+
+/// W-FW8 US1: base-web button-auth-modal 端點授權專用輸入。
+/// 與 `AssignPermissionDto` 差異：① 不收 domain（由 JWT actor 注入）；
+/// ② `endpoint_ids` 允許空陣列（spec E-4：空陣列 = 清空 role 全部 endpoint 授權）。
+#[derive(Debug, Deserialize, Serialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemManageAssignRoleEndpointsInput {
+    #[validate(length(min = 1, message = "Role ID cannot be empty"))]
+    pub role_id: String,
+    /// 空陣列 = 清空 role 全部 endpoint 授權（per spec E-4）
+    pub endpoint_ids: Vec<String>,
+}
