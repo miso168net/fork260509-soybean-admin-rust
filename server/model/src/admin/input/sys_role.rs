@@ -60,7 +60,7 @@ pub struct SystemManageAddRoleInput {
 pub struct SystemManageUpdateRoleInput {
     pub id: String,
     pub role_name: String,
-    pub role_code: String, // FR-007 code-lock：收下但刻意不使用，code 沿用該角色既有值
+    pub role_code: String, // W-FW6 N4：直送 rust update_role（rust 端同步 Casbin policy 並 publish reload）
     pub role_desc: Option<String>,
     pub status: String,
 }
@@ -87,4 +87,16 @@ pub struct BatchDeleteRoleInput {
 pub struct AssignRoleMenusInput {
     pub role_id: String,
     pub menu_ids: Vec<i32>,
+}
+
+// W-FW6 systemManage: POST /systemManage/updateRoleHome payload
+// 用於設定 / 清除角色登入後預設首頁路由(對應 sys_menu.route_name)。
+// home None / Some("") 皆視為「明示清除 home」、持久化為 NULL。
+#[derive(Debug, Deserialize, Validate)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateRoleHomeInput {
+    #[validate(length(min = 1, message = "Role ID must not be empty"))]
+    pub role_id: String,
+    /// None / Some("") 皆視為「明示清除 home」, 持久化為 NULL
+    pub home: Option<String>,
 }

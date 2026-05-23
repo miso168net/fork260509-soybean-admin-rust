@@ -142,6 +142,18 @@ impl SysSystemManageRouter {
                 role_service,
                 "分配角色菜单授权",
             ),
+            RouteInfo::new(
+                &format!("{}/getRoleHome/:roleId", base_path),
+                Method::GET,
+                role_service,
+                "取角色首页路由",
+            ),
+            RouteInfo::new(
+                &format!("{}/updateRoleHome", base_path),
+                Method::POST,
+                role_service,
+                "更新角色首页路由",
+            ),
         ];
 
         for route in routes {
@@ -195,6 +207,14 @@ impl SysSystemManageRouter {
             .route(
                 "/assignRoleMenus",
                 post(SysSystemManageApi::assign_role_menus_for_systemmanage),
+            )
+            .route(
+                "/getRoleHome/{roleId}",
+                get(SysSystemManageApi::get_role_home_for_systemmanage),
+            )
+            .route(
+                "/updateRoleHome",
+                post(SysSystemManageApi::update_role_home_for_systemmanage),
             );
 
         Router::new().nest(Self::BASE_PATH, router)

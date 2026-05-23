@@ -145,12 +145,15 @@ impl SysAuthenticationApi {
     /// 为角色分配路由
     ///
     /// 将指定的路由分配给指定域中的角色。
+    /// W-FW6 US2 (FR-007): handler 注入 Actor 給 service 寫 audit_log。
     pub async fn assign_routes(
+        Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         ValidatedForm(input): ValidatedForm<AssignRouteDto>,
     ) -> Result<Res<()>, AppError> {
+        let actor = Actor::from(&user);
         service
-            .assign_routes(input.domain, input.role_id, input.route_ids)
+            .assign_routes(input.domain, input.role_id, input.route_ids, &actor)
             .await?;
 
         Ok(Res::new_data(()))
@@ -159,12 +162,15 @@ impl SysAuthenticationApi {
     /// 为角色分配用户
     ///
     /// 将指定的用户分配给指定角色。
+    /// W-FW6 US2 (FR-008): handler 注入 Actor 給 service 寫 audit_log。
     pub async fn assign_users(
+        Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         ValidatedForm(input): ValidatedForm<AssignUserDto>,
     ) -> Result<Res<()>, AppError> {
+        let actor = Actor::from(&user);
         service
-            .assign_users(input.role_id, input.user_ids)
+            .assign_users(input.role_id, input.user_ids, &actor)
             .await?;
         Ok(Res::new_data(()))
     }

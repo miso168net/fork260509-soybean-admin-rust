@@ -19,7 +19,8 @@ use server_service::admin::{
     SystemManageMenuOutput, SystemManageMenuTreeNodeOutput, SystemManageRoleOutput,
     SystemManageUpdateMenuInput, SystemManageUpdateRoleInput, SystemManageUpdateUserInput,
     SystemManageUserOutput, TAuthorizationService, TMenuService, TRoleService, TUserService,
-    UpdateMenuInput, UpdateRoleInput, UpdateUserInput, UserPageRequest, UserWithoutPassword,
+    UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput, UpdateUserInput, UserPageRequest,
+    UserWithoutPassword,
 };
 
 pub struct SysSystemManageApi;
@@ -273,7 +274,7 @@ impl SysSystemManageApi {
     }
 
     /// W-FW3 transform: POST /systemManage/updateRole (base-web shape → backend domain shape)
-    /// FR-007 code-lock：code / pid 沿用既有值（避免 Casbin policy 失聯、避免擾動角色樹）。
+    /// W-FW6 N4：pid 沿用既有值（避免擾動角色樹）；code 直送 input（rust update_role 同步 Casbin policy）。
     pub async fn update_role_for_systemmanage(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
@@ -285,7 +286,7 @@ impl SysSystemManageApi {
             id: input.id,
             role: RoleInput {
                 pid: existing.pid,
-                code: existing.code,
+                code: input.role_code,
                 name: input.role_name,
                 status: map_status(&input.status)?,
                 description: input.role_desc,
@@ -337,13 +338,38 @@ impl SysSystemManageApi {
 
     /// W-FW4 transform: POST /systemManage/assignRoleMenus
     /// domain 由 JWT actor 伺服器端注入，base-web 不傳。
+    /// W-FW6 US2 (FR-007): handler 注入 Actor 給 service 寫 audit_log。
     pub async fn assign_role_menus_for_systemmanage(
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         Extension(user): Extension<User>,
         Json(input): Json<AssignRoleMenusInput>,
     ) -> Result<Res<bool>, AppError> {
+        let actor = Actor::from(&user);
         service
-            .assign_routes(user.domain(), input.role_id, input.menu_ids)
+            .assign_routes(user.domain(), input.role_id, input.menu_ids, &actor)
+            .await
+            .map(|_| Res::new_data(true))
+    }
+
+    /// W-FW6 transform: GET /systemManage/getRoleHome/:roleId
+    /// 讀取角色首頁路由（無設定 → null）。RoleNotFound → 4001。
+    pub async fn get_role_home_for_systemmanage(
+        Path(role_id): Path<String>,
+        Extension(service): Extension<Arc<SysRoleService>>,
+    ) -> Result<Res<Option<String>>, AppError> {
+        service.get_role_home(&role_id).await.map(Res::new_data)
+    }
+
+    /// W-FW6 transform: POST /systemManage/updateRoleHome
+    /// 寫入角色首頁路由（None / Some("") → NULL 清除；非空 → 必為 enabled + non-constant menu route_name）。
+    pub async fn update_role_home_for_systemmanage(
+        Extension(service): Extension<Arc<SysRoleService>>,
+        Extension(user): Extension<User>,
+        Json(input): Json<UpdateRoleHomeInput>,
+    ) -> Result<Res<bool>, AppError> {
+        let actor = Actor::from(&user);
+        service
+            .update_role_home(input, &actor)
             .await
             .map(|_| Res::new_data(true))
     }

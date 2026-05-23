@@ -17,3 +17,4 @@ pub mod m20260522_c_sys_menu_id_seq_fix;
 pub mod m20260522_d_wfw3_role_alias_seed;
 pub mod m20260522_e_wfw4_role_auth_alias_seed;
 pub mod m20260523_b_wfw5_change_password_seed;
+pub mod m20260524_b_wfw6_role_home_alias_seed;

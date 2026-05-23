@@ -66,6 +66,10 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260523_b_wfw5_change_password_seed::Migration),
             // W-FW7 menu-field-persistence: sys_menu 加 query/buttons (JSONB) + fixed_index_in_tab (INTEGER) 3 個 nullable 欄位
             Box::new(schemas::m20260523_c_wfw7_add_menu_fields_to_sys_menu::Migration),
+            // W-FW6 role-authorization-completion (US1): sys_role 加 home_route_name VARCHAR NULL
+            Box::new(schemas::m20260524_a_wfw6_add_home_to_sys_role::Migration),
+            // W-FW6 role-authorization-completion (US1): 2 條 role-home alias endpoint Casbin policy seed(4 row)
+            Box::new(datas::m20260524_b_wfw6_role_home_alias_seed::Migration),
         ]
     }
 }

@@ -3,9 +3,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum_casbin::casbin::{CoreApi, MgmtApi, RbacApi};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
-use server_core::web::error::AppError;
+use server_core::web::{
+    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
+    error::AppError,
+};
 use server_global::notify_casbin_changed;
 use server_model::admin::{
+    audit_log,
     entities::{
         prelude::{SysRoleMenu, SysUserRole},
         sys_role_menu::{ActiveModel as SysRoleMenuActiveModel, Column as SysRoleMenuColumn},
@@ -64,10 +68,16 @@ pub trait TAuthorizationService: Send + Sync {
         domain: String,
         role_id: String,
         route_ids: Vec<i32>,
+        actor: &Actor,
     ) -> Result<(), AppError>;
 
     /// 为角色分配用户
-    async fn assign_users(&self, role_id: String, user_ids: Vec<String>) -> Result<(), AppError>;
+    async fn assign_users(
+        &self,
+        role_id: String,
+        user_ids: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError>;
 }
 
 #[derive(Clone)]
@@ -227,6 +237,7 @@ impl TAuthorizationService for SysAuthorizationService {
         domain: String,
         role_id: String,
         route_ids: Vec<i32>,
+        actor: &Actor,
     ) -> Result<(), AppError> {
         let (domain_code, role_id, _) = self.check_domain_and_role(&domain, &role_id).await?;
 
@@ -297,12 +308,43 @@ impl TAuthorizationService for SysAuthorizationService {
                 .map_err(AppError::from)?;
         }
 
+        // W-FW6 US2 (FR-007): 補 audit_log gap — 在 commit 前寫 sys_role / Update 一筆，
+        // payload_before 記既有 menu_ids、payload_after 記新指派 menu_ids。
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_role",
+                entity_id: role_id.clone(),
+                payload_before: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "domain": &domain_code,
+                    "menuIds": &existing_route_ids,
+                })),
+                payload_after: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "domain": &domain_code,
+                    "menuIds": &route_ids,
+                })),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
         txn.commit().await.map_err(AppError::from)?;
 
         Ok(())
     }
 
-    async fn assign_users(&self, role_id: String, user_ids: Vec<String>) -> Result<(), AppError> {
+    async fn assign_users(
+        &self,
+        role_id: String,
+        user_ids: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
         let _ = self.check_role(&role_id).await?;
 
         let db = db_helper::get_db_connection().await?;
@@ -368,6 +410,30 @@ impl TAuthorizationService for SysAuthorizationService {
                 .await
                 .map_err(AppError::from)?;
         }
+
+        // W-FW6 US2 (FR-008): 補 audit_log gap — 在 commit 前寫 sys_role / Update 一筆，
+        // payload_before 記既有 user_ids、payload_after 記新指派 user_ids（sys_user_role 無 domain 欄位）。
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_role",
+                entity_id: role_id.clone(),
+                payload_before: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "userIds": &existing_user_ids,
+                })),
+                payload_after: Some(serde_json::json!({
+                    "roleId": &role_id,
+                    "userIds": &user_ids,
+                })),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
 
         txn.commit().await.map_err(AppError::from)?;
 

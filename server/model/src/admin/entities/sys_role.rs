@@ -20,6 +20,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub pid: String,
     pub status: Status,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub home_route_name: Option<String>,
     pub created_at: DateTime,
     #[sea_orm(column_type = "Text")]
     pub created_by: String,

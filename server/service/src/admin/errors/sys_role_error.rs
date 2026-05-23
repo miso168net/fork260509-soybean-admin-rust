@@ -8,6 +8,10 @@ pub enum RoleError {
 
     #[error("Duplicate role code")]
     DuplicateRoleCode,
+
+    // W-FW6 role-authorization-completion (US1): home route_name 不對應任何 enabled + non-constant menu
+    #[error("Home route not found")]
+    HomeRouteNotFound,
 }
 
 impl ApiError for RoleError {
@@ -15,6 +19,7 @@ impl ApiError for RoleError {
         match self {
             RoleError::RoleNotFound => 4001,
             RoleError::DuplicateRoleCode => 4002,
+            RoleError::HomeRouteNotFound => 4003,
         }
     }
 
