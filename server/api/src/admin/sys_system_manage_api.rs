@@ -183,6 +183,9 @@ impl SysSystemManageApi {
             constant: input.constant,
             href: input.href,
             multi_tab: input.multi_tab,
+            query: input.query,
+            buttons: input.buttons,
+            fixed_index_in_tab: input.fixed_index_in_tab,
         };
         service.create_menu(create_input, &actor).await.map(Res::new_data)
     }
@@ -215,6 +218,9 @@ impl SysSystemManageApi {
                 constant: input.constant,
                 href: input.href,
                 multi_tab: input.multi_tab,
+                query: input.query,
+                buttons: input.buttons,
+                fixed_index_in_tab: input.fixed_index_in_tab,
             },
         };
         service.update_menu(update_input, &actor).await.map(Res::new_data)

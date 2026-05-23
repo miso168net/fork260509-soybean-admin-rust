@@ -36,6 +36,10 @@ pub struct RouteMeta {
     pub active_menu: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multi_tab: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed_index_in_tab: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -69,6 +73,12 @@ pub struct MenuTree {
     pub href: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multi_tab: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buttons: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixed_index_in_tab: Option<i32>,
     pub created_at: NaiveDateTime,
     pub created_by: String,
     #[serde(skip_serializing_if = "Option::is_none")]

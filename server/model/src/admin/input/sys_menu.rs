@@ -81,6 +81,12 @@ pub struct MenuInput {
     #[validate(length(max = 200, message = "Href must not exceed 200 characters"))]
     pub href: Option<String>,
     pub multi_tab: Option<bool>,
+    #[serde(default)]
+    pub query: Option<serde_json::Value>,
+    #[serde(default)]
+    pub buttons: Option<serde_json::Value>,
+    #[serde(default)]
+    pub fixed_index_in_tab: Option<i32>,
 }
 
 pub type CreateMenuInput = MenuInput;
@@ -103,7 +109,7 @@ pub struct IsRouteExistInput {
 // W-FW2 systemManage transform layer: base-web-shaped add/update/delete menu DTOs。
 // 僅 Deserialize（無 Validate）— 必填欄位空值由 base-web 表單驗證把關，
 // 後端轉換層只負責形狀對映。Add / Update 分為兩型：Update 多 id，刻意不共用。
-// query / buttons / fixedIndexInTab 等欄位不宣告，serde 自動忽略（spec Q1 範疇外）。
+// W-FW7: query / buttons / fixedIndexInTab 三欄已接通持久化、透傳至 native MenuInput。
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageAddMenuInput {
@@ -125,6 +131,12 @@ pub struct SystemManageAddMenuInput {
     pub hide_in_menu: Option<bool>,
     pub active_menu: Option<String>,
     pub multi_tab: Option<bool>,
+    #[serde(default)]
+    pub query: Option<serde_json::Value>,
+    #[serde(default)]
+    pub buttons: Option<serde_json::Value>,
+    #[serde(default)]
+    pub fixed_index_in_tab: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +161,12 @@ pub struct SystemManageUpdateMenuInput {
     pub hide_in_menu: Option<bool>,
     pub active_menu: Option<String>,
     pub multi_tab: Option<bool>,
+    #[serde(default)]
+    pub query: Option<serde_json::Value>,
+    #[serde(default)]
+    pub buttons: Option<serde_json::Value>,
+    #[serde(default)]
+    pub fixed_index_in_tab: Option<i32>,
 }
 
 // W-FW2 systemManage: DELETE /systemManage/deleteMenu body-id payload

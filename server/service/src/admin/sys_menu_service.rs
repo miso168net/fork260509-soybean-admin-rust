@@ -82,6 +82,9 @@ impl SysMenuService {
             constant: menu.constant,
             href: menu.href.clone(),
             multi_tab: menu.multi_tab,
+            query: menu.query.clone(),
+            buttons: menu.buttons.clone(),
+            fixed_index_in_tab: menu.fixed_index_in_tab,
             created_at: menu.created_at,
             created_by: menu.created_by.clone(),
             updated_at: menu.updated_at,
@@ -184,6 +187,8 @@ impl TMenuService for SysMenuService {
                     hide_in_menu: menu.hide_in_menu,
                     active_menu: menu.active_menu,
                     multi_tab: menu.multi_tab,
+                    query: menu.query.clone(),
+                    fixed_index_in_tab: menu.fixed_index_in_tab,
                 },
                 children: vec![].into(),
             })
@@ -222,6 +227,9 @@ impl TMenuService for SysMenuService {
             constant: Set(input.constant),
             href: Set(input.href),
             multi_tab: Set(input.multi_tab),
+            query: Set(input.query),
+            buttons: Set(input.buttons),
+            fixed_index_in_tab: Set(input.fixed_index_in_tab),
 
             created_by: Set(actor.id.clone()),
             ..Default::default()
@@ -296,6 +304,9 @@ impl TMenuService for SysMenuService {
         menu.constant = Set(input.menu.constant);
         menu.href = Set(input.menu.href);
         menu.multi_tab = Set(input.menu.multi_tab);
+        menu.query = Set(input.menu.query);
+        menu.buttons = Set(input.menu.buttons);
+        menu.fixed_index_in_tab = Set(input.menu.fixed_index_in_tab);
 
         menu.updated_at = Set(Some(Local::now().naive_local()));
         menu.updated_by = Set(Some(actor.id.clone()));

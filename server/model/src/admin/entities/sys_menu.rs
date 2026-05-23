@@ -2,6 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 
 use super::sea_orm_active_enums::{MenuType, Status};
 
@@ -31,6 +32,11 @@ pub struct Model {
     pub constant: bool,
     pub href: Option<String>,
     pub multi_tab: Option<bool>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub query: Option<JsonValue>,
+    #[sea_orm(column_type = "JsonBinary", nullable)]
+    pub buttons: Option<JsonValue>,
+    pub fixed_index_in_tab: Option<i32>,
     pub created_at: DateTime,
     #[sea_orm(column_type = "Text")]
     pub created_by: String,

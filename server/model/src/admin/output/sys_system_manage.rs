@@ -114,7 +114,7 @@ pub struct SystemManageMenuOutput {
     pub component: String,
     pub icon: Option<String>,
     pub icon_type: Option<String>,
-    pub buttons: Option<Vec<serde_json::Value>>,
+    pub buttons: Option<serde_json::Value>,
     pub children: Option<Vec<SystemManageMenuOutput>>,
     pub status: String,
     pub hide_in_menu: Option<bool>,
@@ -182,7 +182,7 @@ impl From<MenuTree> for SystemManageMenuOutput {
             component: m.component,
             icon: m.icon,
             icon_type: map_icon_type(m.icon_type),
-            buttons: None,
+            buttons: m.buttons,
             children: None,
             status: map_status(m.status),
             hide_in_menu: m.hide_in_menu,
@@ -193,8 +193,8 @@ impl From<MenuTree> for SystemManageMenuOutput {
             href: m.href,
             active_menu: m.active_menu,
             multi_tab: m.multi_tab,
-            fixed_index_in_tab: None,
-            query: None,
+            fixed_index_in_tab: m.fixed_index_in_tab,
+            query: m.query,
         }
     }
 }

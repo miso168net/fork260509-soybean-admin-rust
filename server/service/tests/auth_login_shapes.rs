@@ -23,6 +23,8 @@ fn make_route_meta(order: i32) -> RouteMeta {
         hide_in_menu: None,
         active_menu: None,
         multi_tab: None,
+        query: None,
+        fixed_index_in_tab: None,
     }
 }
 
@@ -144,6 +146,8 @@ fn route_meta_serde_camelcase() {
         hide_in_menu: Some(false),
         active_menu: Some("dashboard".to_string()),
         multi_tab: Some(true),
+        query: None,
+        fixed_index_in_tab: None,
     };
     let value = serde_json::to_value(&meta).expect("serialize");
 

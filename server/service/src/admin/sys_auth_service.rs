@@ -196,6 +196,8 @@ impl TAuthService for SysAuthService {
                     hide_in_menu: menu.hide_in_menu,
                     active_menu: menu.active_menu,
                     multi_tab: menu.multi_tab,
+                    query: menu.query.clone(),
+                    fixed_index_in_tab: menu.fixed_index_in_tab,
                 },
                 children: Some(vec![]),
                 id: menu.id,

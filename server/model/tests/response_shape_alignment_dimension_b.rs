@@ -30,6 +30,8 @@ fn scenario_b7_nested_struct_camel_case_independent() {
         hide_in_menu: None,
         active_menu: None,
         multi_tab: None,
+        query: None,
+        fixed_index_in_tab: None,
     };
     let menu_route = MenuRoute {
         name: "home".to_string(),
@@ -105,6 +107,8 @@ fn sc004_no_snake_case_keys_in_sample_admin_endpoint_outputs() {
         hide_in_menu: None,
         active_menu: None,
         multi_tab: None,
+        query: None,
+        fixed_index_in_tab: None,
     };
     let menu_route = MenuRoute {
         name: "home".to_string(),

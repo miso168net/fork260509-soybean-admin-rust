@@ -64,6 +64,8 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260522_e_wfw4_role_auth_alias_seed::Migration),
             // W-FW5 user-role-and-password-wiring: /auth/changePassword 3-role Casbin policy seed(3 row)
             Box::new(datas::m20260523_b_wfw5_change_password_seed::Migration),
+            // W-FW7 menu-field-persistence: sys_menu 加 query/buttons (JSONB) + fixed_index_in_tab (INTEGER) 3 個 nullable 欄位
+            Box::new(schemas::m20260523_c_wfw7_add_menu_fields_to_sys_menu::Migration),
         ]
     }
 }
