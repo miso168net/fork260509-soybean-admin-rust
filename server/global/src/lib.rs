@@ -2,6 +2,7 @@ pub use jsonwebtoken::Validation;
 
 pub mod casbin_notify;
 pub mod global;
+pub mod snowflake;
 
 pub use casbin_notify::{notify_casbin_changed, CASBIN_INVALIDATE_CHANNEL};
 
