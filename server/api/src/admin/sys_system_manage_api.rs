@@ -16,14 +16,15 @@ use server_model::admin::facade::sys_endpoint;
 use server_service::admin::{
     AssignRoleMenusInput, BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput,
     CreateUserInput, DeleteMenuByBodyInput, DeleteRoleByBodyInput, EndpointTreeNode, Gender,
-    MenuInput, MenuType, RoleInput, RolePageRequest, Status, SysAuthorizationService, SysMenuModel,
-    SysMenuService, SysRoleModel, SysRoleService, SysUserService, SystemManageAddMenuInput,
-    SystemManageAddRoleInput, SystemManageAddUserInput, SystemManageAllRoleOutput,
-    SystemManageAssignRoleEndpointsInput, SystemManageMenuOutput, SystemManageMenuTreeNodeOutput,
-    SystemManageRoleOutput, SystemManageUpdateMenuInput, SystemManageUpdateRoleInput,
-    SystemManageUpdateUserInput, SystemManageUserOutput, TAuthorizationService, TMenuService,
-    TRoleService, TUserService, UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput,
-    UpdateUserInput, UserPageRequest, UserWithoutPassword,
+    MenuInput, MenuType, RoleInput, RolePageRequest, Status, SysAuthorizationService,
+    SysEndpointService, SysMenuModel, SysMenuService, SysRoleModel, SysRoleService, SysUserService,
+    SystemManageAddMenuInput, SystemManageAddRoleInput, SystemManageAddUserInput,
+    SystemManageAllRoleOutput, SystemManageAssignRoleEndpointsInput, SystemManageMenuOutput,
+    SystemManageMenuTreeNodeOutput, SystemManageRoleOutput, SystemManageUpdateMenuInput,
+    SystemManageUpdateRoleInput, SystemManageUpdateUserInput, SystemManageUserOutput,
+    TAuthorizationService, TEndpointService, TMenuService, TRoleService, TUserService,
+    UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput, UpdateUserInput, UserPageRequest,
+    UserWithoutPassword,
 };
 use server_service::helper::db_helper;
 
@@ -54,6 +55,8 @@ impl SysSystemManageApi {
 
     /// F7 alias: GET /systemManage/getUserList
     /// W-FW5 T002: user_roles 由批次查詢真實填充（取代 From impl 硬寫 vec![]）。
+    /// 039 cascade: UserWithoutPassword.id 已改 i64 display_id；handler 先逐筆 lookup ULID
+    /// （admin 列表通量低、sequential await 簡單即可），再批次撈 role code 填回 records。
     pub async fn list_users_for_systemmanage(
         Query(params): Query<UserPageRequest>,
         Extension(service): Extension<Arc<SysUserService>>,
@@ -62,11 +65,20 @@ impl SysSystemManageApi {
         let mut records: Vec<SystemManageUserOutput> =
             raw.records.into_iter().map(Into::into).collect();
 
-        // W-FW5 T002: 批次查本頁所有 user 的 role code 集合（一次 query、避免 N+1）
-        let user_ids: Vec<String> = records.iter().map(|r| r.id.clone()).collect();
-        let roles_map = service.get_role_codes_for_users(user_ids).await?;
+        // 039 cascade: display_id (i64) → ULID (String) 配對；後續 get_role_codes_for_users
+        // 仍走 ULID（避免改 service signature），最後用配對表把 role code 填回 record。
+        let mut display_to_ulid: std::collections::HashMap<i64, String> =
+            std::collections::HashMap::with_capacity(records.len());
+        for record in &records {
+            let ulid = service.lookup_ulid_by_display_id(record.id).await?;
+            display_to_ulid.insert(record.id, ulid);
+        }
+        let user_ulids: Vec<String> = display_to_ulid.values().cloned().collect();
+        let roles_map = service.get_role_codes_for_users(user_ulids).await?;
         for record in &mut records {
-            record.user_roles = roles_map.get(&record.id).cloned().unwrap_or_default();
+            if let Some(ulid) = display_to_ulid.get(&record.id) {
+                record.user_roles = roles_map.get(ulid).cloned().unwrap_or_default();
+            }
         }
 
         Ok(Res::new_data(PaginatedData {
@@ -127,8 +139,10 @@ impl SysSystemManageApi {
         };
         let created = service.create_user(create_input, &actor).await?;
         // W-FW5 T005: user→roles 指派（空清單為合法清空）
+        // 039 cascade: created.id 已改 i64 display_id；先 lookup ULID 才能餵 assign_roles_to_user(user_id: String)。
+        let created_ulid = service.lookup_ulid_by_display_id(created.id).await?;
         service
-            .assign_roles_to_user(created.id.clone(), input.user_roles, &actor)
+            .assign_roles_to_user(created_ulid, input.user_roles, &actor)
             .await?;
         Ok(Res::new_data(created))
     }
@@ -156,8 +170,10 @@ impl SysSystemManageApi {
         };
         let updated = service.update_user(update_input, &actor).await?;
         // W-FW5 T005: user→roles 指派（空清單為合法清空）
+        // 039 cascade: updated.id 已改 i64 display_id；先 lookup ULID 才能餵 assign_roles_to_user(user_id: String)。
+        let updated_ulid = service.lookup_ulid_by_display_id(updated.id).await?;
         service
-            .assign_roles_to_user(updated.id.clone(), input.user_roles, &actor)
+            .assign_roles_to_user(updated_ulid, input.user_roles, &actor)
             .await?;
         Ok(Res::new_data(updated))
     }
@@ -329,13 +345,16 @@ impl SysSystemManageApi {
 
     /// W-FW4 transform: GET /systemManage/getRoleMenuIds/:roleId
     /// domain 由 JWT actor 伺服器端注入，base-web 不傳。
+    /// 039 T024: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
     pub async fn get_role_menu_ids_for_systemmanage(
-        Path(role_id): Path<String>,
+        Path(role_display_id): Path<i64>,
         Extension(service): Extension<Arc<SysMenuService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
     ) -> Result<Res<Vec<i32>>, AppError> {
+        let role_ulid = role_svc.lookup_ulid_by_display_id(role_display_id).await?;
         service
-            .get_menu_ids_by_role_id(role_id, user.domain())
+            .get_menu_ids_by_role_id(role_ulid, user.domain())
             .await
             .map(Res::new_data)
     }
@@ -343,25 +362,30 @@ impl SysSystemManageApi {
     /// W-FW4 transform: POST /systemManage/assignRoleMenus
     /// domain 由 JWT actor 伺服器端注入，base-web 不傳。
     /// W-FW6 US2 (FR-007): handler 注入 Actor 給 service 寫 audit_log。
+    /// 039 T024: input.role_id 改 i64；先 lookup ULID 再走 service（menu_ids 仍 i32，不變）。
     pub async fn assign_role_menus_for_systemmanage(
         Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         Json(input): Json<AssignRoleMenusInput>,
     ) -> Result<Res<bool>, AppError> {
         let actor = Actor::from(&user);
+        let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
         service
-            .assign_routes(user.domain(), input.role_id, input.menu_ids, &actor)
+            .assign_routes(user.domain(), role_ulid, input.menu_ids, &actor)
             .await
             .map(|_| Res::new_data(true))
     }
 
     /// W-FW6 transform: GET /systemManage/getRoleHome/:roleId
     /// 讀取角色首頁路由（無設定 → null）。RoleNotFound → 4001。
+    /// 039 T024: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
     pub async fn get_role_home_for_systemmanage(
-        Path(role_id): Path<String>,
+        Path(role_display_id): Path<i64>,
         Extension(service): Extension<Arc<SysRoleService>>,
     ) -> Result<Res<Option<String>>, AppError> {
-        service.get_role_home(&role_id).await.map(Res::new_data)
+        let role_ulid = service.lookup_ulid_by_display_id(role_display_id).await?;
+        service.get_role_home(&role_ulid).await.map(Res::new_data)
     }
 
     /// W-FW6 transform: POST /systemManage/updateRoleHome
@@ -433,8 +457,9 @@ impl SysSystemManageApi {
 
     /// W-FW8 US1 transform: GET /systemManage/getRoleEndpointIds/:roleId
     /// 反查 role 已分配 endpoint.id 集合（從 Casbin policy v2/v3 reverse-map）。
+    /// 039 T024: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
     pub async fn get_role_endpoint_ids_for_systemmanage(
-        Path(role_id): Path<String>,
+        Path(role_display_id): Path<i64>,
         Extension(user): Extension<User>,
         Extension(role_service): Extension<Arc<SysRoleService>>,
         Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
@@ -442,7 +467,8 @@ impl SysSystemManageApi {
         use std::collections::HashMap;
 
         // 1. validate role + get role.code (RoleNotFound → 4001 既有 behavior)
-        let role = role_service.get_role(&role_id).await?;
+        let role_ulid = role_service.lookup_ulid_by_display_id(role_display_id).await?;
+        let role = role_service.get_role(&role_ulid).await?;
         let role_code = role.code;
         let domain = user.domain().to_string();
 
@@ -452,7 +478,9 @@ impl SysSystemManageApi {
         let policies = enforcer_read.get_filtered_policy(0, vec![role_code, domain]);
         drop(enforcer_read);
 
-        // 3. build (path, method) → endpoint.id map (R-Q3 in-memory optimization)
+        // 3. build (path, method) → endpoint.display_id(string) map (R-Q3 in-memory optimization)
+        // 039: base-web 端對 endpoint id 統一改 numeric display_id（EndpointTreeNode.key = display_id.to_string()），
+        // 所以反查結果也須回 display_id 字串而非 ULID，前端才能 match prop 的 checked keys。
         let db = db_helper::get_db_connection().await?;
         let endpoints = sys_endpoint::find_active()
             .all(db.as_ref())
@@ -460,7 +488,10 @@ impl SysSystemManageApi {
             .map_err(AppError::from)?;
         let mut path_method_to_id: HashMap<(String, String), String> = HashMap::new();
         for ep in &endpoints {
-            path_method_to_id.insert((ep.path.clone(), ep.method.clone()), ep.id.clone());
+            path_method_to_id.insert(
+                (ep.path.clone(), ep.method.clone()),
+                ep.display_id.to_string(),
+            );
         }
 
         // 4. reverse-map policies → endpoint.ids, dedup + sort
@@ -481,17 +512,27 @@ impl SysSystemManageApi {
     /// W-FW8 US1 transform: POST /systemManage/assignRoleEndpoints
     /// 透過既有 assign_permission service 寫 Casbin policy；audit 由 service-side 補（US2 phase）。
     /// 注：T002+T003 已把 assign_permission signature 末尾改 `actor: &Actor`。
+    /// 039 T026: input.role_id (i64) + endpoint_ids (Vec<i64>) 先 lookup ULID 再走 service。
     pub async fn assign_role_endpoints_for_systemmanage(
         Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
+        Extension(endpoint_svc): Extension<Arc<SysEndpointService>>,
         Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
         Json(input): Json<SystemManageAssignRoleEndpointsInput>,
     ) -> Result<Res<bool>, AppError> {
         let actor = Actor::from(&user);
         let domain = user.domain().to_string();
         let enforcer = cache_enforcer.get_enforcer();
+
+        let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
+        let mut endpoint_ulids: Vec<String> = Vec::with_capacity(input.endpoint_ids.len());
+        for ep_id in &input.endpoint_ids {
+            endpoint_ulids.push(endpoint_svc.lookup_ulid_by_display_id(*ep_id).await?);
+        }
+
         service
-            .assign_permission(domain, input.role_id, input.endpoint_ids, enforcer, &actor)
+            .assign_permission(domain, role_ulid, endpoint_ulids, enforcer, &actor)
             .await
             .map(|_| Res::new_data(true))
     }

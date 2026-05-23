@@ -35,12 +35,14 @@ impl SysAccessKeyApi {
         service.create_access_key(input, &actor).await.map(Res::new_data)
     }
 
+    /// 039 T030: Path<String> → Path<i64> + access_key_svc.lookup_ulid_by_display_id cascade。
     pub async fn delete_access_key(
-        Path(id): Path<String>,
+        Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysAccessKeyService>>,
         Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
-        service.delete_access_key(&id, &actor).await.map(Res::new_data)
+        let key_ulid = service.lookup_ulid_by_display_id(display_id).await?;
+        service.delete_access_key(&key_ulid, &actor).await.map(Res::new_data)
     }
 }

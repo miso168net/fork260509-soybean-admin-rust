@@ -16,8 +16,9 @@ use server_service::{
     admin::{
         dto::sys_auth_dto::LoginContext, AssignPermissionDto, AssignRouteDto, AssignUserDto,
         AuthErrorQuery, AuthOutput, ChangePasswordInput, LoginInput, RefreshTokenInput,
-        SendCaptchaInput, SysAuthService, SysAuthorizationService, TAuthService,
-        TAuthorizationService, UserInfoOutput, UserRoute, VerifyCaptchaInput,
+        SendCaptchaInput, SysAuthService, SysAuthorizationService, SysEndpointService,
+        SysRoleService, SysUserService, TAuthService, TAuthorizationService, TEndpointService,
+        TRoleService, TUserService, UserInfoOutput, UserRoute, VerifyCaptchaInput,
     },
     Audience,
 };
@@ -129,17 +130,26 @@ impl SysAuthenticationApi {
     ///
     /// 将指定的权限分配给指定域中的角色。
     /// W-FW8 cascade: handler 注入 Actor 給 service。
+    /// 039 T025: input.role_id 改 i64 + permissions Vec<i64>；先 lookup ULID 再走 service。
     pub async fn assign_permission(
         Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
+        Extension(endpoint_svc): Extension<Arc<SysEndpointService>>,
         Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
         ValidatedForm(input): ValidatedForm<AssignPermissionDto>,
     ) -> Result<Res<()>, AppError> {
         let enforcer = cache_enforcer.get_enforcer();
         let actor = Actor::from(&user);
 
+        let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
+        let mut permission_ulids: Vec<String> = Vec::with_capacity(input.permissions.len());
+        for perm_id in input.permissions {
+            permission_ulids.push(endpoint_svc.lookup_ulid_by_display_id(perm_id).await?);
+        }
+
         service
-            .assign_permission(input.domain, input.role_id, input.permissions, enforcer, &actor)
+            .assign_permission(input.domain, role_ulid, permission_ulids, enforcer, &actor)
             .await?;
 
         Ok(Res::new_data(()))
@@ -149,14 +159,17 @@ impl SysAuthenticationApi {
     ///
     /// 将指定的路由分配给指定域中的角色。
     /// W-FW6 US2 (FR-007): handler 注入 Actor 給 service 寫 audit_log。
+    /// 039 T025: input.role_id 改 i64；先 lookup ULID 再走 service（route_ids 仍 i32 sys_menu PK，不變）。
     pub async fn assign_routes(
         Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
         ValidatedForm(input): ValidatedForm<AssignRouteDto>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
+        let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
         service
-            .assign_routes(input.domain, input.role_id, input.route_ids, &actor)
+            .assign_routes(input.domain, role_ulid, input.route_ids, &actor)
             .await?;
 
         Ok(Res::new_data(()))
@@ -166,14 +179,22 @@ impl SysAuthenticationApi {
     ///
     /// 将指定的用户分配给指定角色。
     /// W-FW6 US2 (FR-008): handler 注入 Actor 給 service 寫 audit_log。
+    /// 039 T025: input.role_id 改 i64 + user_ids Vec<i64>；先 lookup ULID 再走 service。
     pub async fn assign_users(
         Extension(user): Extension<User>,
         Extension(service): Extension<Arc<SysAuthorizationService>>,
+        Extension(role_svc): Extension<Arc<SysRoleService>>,
+        Extension(user_svc): Extension<Arc<SysUserService>>,
         ValidatedForm(input): ValidatedForm<AssignUserDto>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
+        let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
+        let mut user_ulids: Vec<String> = Vec::with_capacity(input.user_ids.len());
+        for uid in input.user_ids {
+            user_ulids.push(user_svc.lookup_ulid_by_display_id(uid).await?);
+        }
         service
-            .assign_users(input.role_id, input.user_ids, &actor)
+            .assign_users(role_ulid, user_ulids, &actor)
             .await?;
         Ok(Res::new_data(()))
     }

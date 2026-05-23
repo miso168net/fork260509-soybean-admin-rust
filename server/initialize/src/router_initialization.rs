@@ -201,11 +201,18 @@ pub async fn initialize_admin_router() -> Router {
         None
     );
 
+    // 039 T025: authorization 3 handler (assign_permission / assign_routes / assign_users)
+    // cascade lookup_ulid_by_display_id → 補 SysRoleService / SysUserService / SysEndpointService Extension。
     let auth_router = SysAuthenticationRouter::init_authorization_router()
         .await
         .layer(Extension(Arc::new(SysAuthService) as Arc<SysAuthService>))
         .layer(Extension(
             Arc::new(SysAuthorizationService) as Arc<SysAuthorizationService>
+        ))
+        .layer(Extension(Arc::new(SysRoleService) as Arc<SysRoleService>))
+        .layer(Extension(Arc::new(SysUserService) as Arc<SysUserService>))
+        .layer(Extension(
+            Arc::new(SysEndpointService) as Arc<SysEndpointService>
         ));
 
     let auth_router = apply_layers(
@@ -346,12 +353,16 @@ pub async fn initialize_admin_router() -> Router {
     // F9 systemManage-alias-router: 10 條 /systemManage/* alias router
     // JWT auth + Casbin enforce、需注入 3 個 service(SysUserService / SysRoleService / SysMenuService)
     // — merge_router! 單 service 注入不夠，沿用 init_authorization_router 手動 layer 多服務 pattern
+    // 039 T024/T026: systemManage handler cascade lookup_ulid_by_display_id → 補 SysEndpointService Extension。
     let system_manage_router = SysSystemManageRouter::init_router()
         .await
         .layer(Extension(Arc::new(SysUserService) as Arc<SysUserService>))
         .layer(Extension(Arc::new(SysRoleService) as Arc<SysRoleService>))
         .layer(Extension(Arc::new(SysMenuService) as Arc<SysMenuService>))
-        .layer(Extension(Arc::new(SysAuthorizationService) as Arc<SysAuthorizationService>));
+        .layer(Extension(Arc::new(SysAuthorizationService) as Arc<SysAuthorizationService>))
+        .layer(Extension(
+            Arc::new(SysEndpointService) as Arc<SysEndpointService>
+        ));
     let system_manage_router = apply_layers(
         system_manage_router,
         Services::None(std::marker::PhantomData::<()>),

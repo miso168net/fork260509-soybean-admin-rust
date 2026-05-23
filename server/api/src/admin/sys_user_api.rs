@@ -78,11 +78,13 @@ impl SysUserApi {
         service.create_user(input, &actor).await.map(Res::new_data)
     }
 
+    /// 039 T029: Path<String> → Path<i64> + user_svc.lookup_ulid_by_display_id cascade。
     pub async fn get_user(
-        Path(id): Path<String>,
+        Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysUserService>>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
-        service.get_user(&id).await.map(Res::new_data)
+        let user_ulid = service.lookup_ulid_by_display_id(display_id).await?;
+        service.get_user(&user_ulid).await.map(Res::new_data)
     }
 
     pub async fn update_user(
@@ -94,13 +96,15 @@ impl SysUserApi {
         service.update_user(input, &actor).await.map(Res::new_data)
     }
 
+    /// 039 T029: Path<String> → Path<i64> + user_svc.lookup_ulid_by_display_id cascade。
     pub async fn delete_user(
-        Path(id): Path<String>,
+        Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
-        service.delete_user(&id, &actor).await.map(Res::new_data)
+        let user_ulid = service.lookup_ulid_by_display_id(display_id).await?;
+        service.delete_user(&user_ulid, &actor).await.map(Res::new_data)
     }
 
     // F9 systemManage-alias-router: DELETE /systemManage/deleteUser (body-id payload variant)

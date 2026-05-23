@@ -34,11 +34,13 @@ impl SysRoleApi {
         service.create_role(input, &actor).await.map(Res::new_data)
     }
 
+    /// 039 T028: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
     pub async fn get_role(
-        Path(id): Path<String>,
+        Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysRoleService>>,
     ) -> Result<Res<SysRoleModel>, AppError> {
-        service.get_role(&id).await.map(Res::new_data)
+        let role_ulid = service.lookup_ulid_by_display_id(display_id).await?;
+        service.get_role(&role_ulid).await.map(Res::new_data)
     }
 
     pub async fn update_role(
@@ -50,13 +52,15 @@ impl SysRoleApi {
         service.update_role(input, &actor).await.map(Res::new_data)
     }
 
+    /// 039 T028: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
     pub async fn delete_role(
-        Path(id): Path<String>,
+        Path(display_id): Path<i64>,
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
-        service.delete_role(&id, &actor).await.map(Res::new_data)
+        let role_ulid = service.lookup_ulid_by_display_id(display_id).await?;
+        service.delete_role(&role_ulid, &actor).await.map(Res::new_data)
     }
 
     // F9 systemManage-alias-router: GET /systemManage/getAllRoles
