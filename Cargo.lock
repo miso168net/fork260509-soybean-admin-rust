@@ -3275,6 +3275,7 @@ dependencies = [
  "async-std",
  "sea-orm-adapter",
  "sea-orm-migration",
+ "server-global",
 ]
 
 [[package]]

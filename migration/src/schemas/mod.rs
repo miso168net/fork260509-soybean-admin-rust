@@ -21,3 +21,4 @@ pub mod m20260514_g_add_soft_delete_to_sys_access_key;
 pub mod m20260514_h_extend_sys_operation_log_audit_fields;
 pub mod m20260523_c_wfw7_add_menu_fields_to_sys_menu;
 pub mod m20260524_a_wfw6_add_home_to_sys_role;
+pub mod m20260524_d_add_display_id_to_business_entities;

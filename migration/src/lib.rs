@@ -72,6 +72,10 @@ impl MigratorTrait for Migrator {
             Box::new(datas::m20260524_b_wfw6_role_home_alias_seed::Migration),
             // W-FW8 button-auth-completion (US1): 3 條 endpoint alias Casbin policy seed(6 row)
             Box::new(datas::m20260524_c_wfw8_endpoint_alias_seed::Migration),
+            // 039 rust-entity-id-numeric-migration (A3): 5 業務 entity 加 display_id BIGINT + INDEX
+            Box::new(schemas::m20260524_d_add_display_id_to_business_entities::Migration),
+            // 039 rust-entity-id-numeric-migration (A4): 5 entity backfill Snowflake i64 + DROP DEFAULT + ADD UNIQUE
+            Box::new(datas::m20260524_e_backfill_display_id::Migration),
         ]
     }
 }
