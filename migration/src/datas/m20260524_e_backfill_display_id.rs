@@ -51,13 +51,17 @@ impl MigrationTrait for Migration {
                 .await?;
             }
 
-            // 3. DROP DEFAULT + ADD UNIQUE CONSTRAINT（兩條 ALTER 合一個 Statement）
-            let alter_sql = format!(
-                "ALTER TABLE {table} ALTER COLUMN display_id DROP DEFAULT; \
-                 ALTER TABLE {table} ADD CONSTRAINT uq_{table}_display_id UNIQUE (display_id);",
-                table = table
-            );
-            db.execute(Statement::from_string(backend, alter_sql)).await?;
+            // 3. DROP DEFAULT + ADD UNIQUE CONSTRAINT
+            // 拆 2 條 execute_unprepared：sea-orm Statement::from_string 走 prepared 協定、
+            // PG 不允許多 statement 同 prepare（"cannot insert multiple commands into a prepared statement"）。
+            db.execute_unprepared(&format!(
+                "ALTER TABLE {table} ALTER COLUMN display_id DROP DEFAULT"
+            ))
+            .await?;
+            db.execute_unprepared(&format!(
+                "ALTER TABLE {table} ADD CONSTRAINT uq_{table}_display_id UNIQUE (display_id)"
+            ))
+            .await?;
         }
         Ok(())
     }
