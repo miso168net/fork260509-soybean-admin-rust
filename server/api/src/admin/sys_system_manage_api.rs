@@ -149,12 +149,15 @@ impl SysSystemManageApi {
 
     /// W-FW1 transform: POST /systemManage/updateUser (base-web shape → backend domain shape)
     /// W-FW5: 收 userRoles（角色指派）+ 選填 password。
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 update_user(user_ulid, …)
+    /// 與 assign_roles_to_user(user_ulid, …)，避免二次 lookup。
     pub async fn update_user_for_systemmanage(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageUpdateUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
         let actor = Actor::from(&user);
+        let user_ulid = service.lookup_ulid_by_display_id(input.id).await?;
         let update_input = UpdateUserInput {
             id: input.id,
             domain: "built-in".to_string(),
@@ -168,12 +171,10 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             gender: map_gender(input.user_gender.as_deref())?,
         };
-        let updated = service.update_user(update_input, &actor).await?;
+        let updated = service.update_user(&user_ulid, update_input, &actor).await?;
         // W-FW5 T005: user→roles 指派（空清單為合法清空）
-        // 039 cascade: updated.id 已改 i64 display_id；先 lookup ULID 才能餵 assign_roles_to_user(user_id: String)。
-        let updated_ulid = service.lookup_ulid_by_display_id(updated.id).await?;
         service
-            .assign_roles_to_user(updated_ulid, input.user_roles, &actor)
+            .assign_roles_to_user(user_ulid, input.user_roles, &actor)
             .await?;
         Ok(Res::new_data(updated))
     }
@@ -295,13 +296,15 @@ impl SysSystemManageApi {
 
     /// W-FW3 transform: POST /systemManage/updateRole (base-web shape → backend domain shape)
     /// W-FW6 N4：pid 沿用既有值（避免擾動角色樹）；code 直送 input（rust update_role 同步 Casbin policy）。
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 get_role / update_role。
     pub async fn update_role_for_systemmanage(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageUpdateRoleInput>,
     ) -> Result<Res<SysRoleModel>, AppError> {
         let actor = Actor::from(&user);
-        let existing = service.get_role(&input.id).await?;
+        let role_ulid = service.lookup_ulid_by_display_id(input.id).await?;
+        let existing = service.get_role(&role_ulid).await?;
         let update_input = UpdateRoleInput {
             id: input.id,
             role: RoleInput {
@@ -312,21 +315,28 @@ impl SysSystemManageApi {
                 description: input.role_desc,
             },
         };
-        service.update_role(update_input, &actor).await.map(Res::new_data)
+        service
+            .update_role(&role_ulid, update_input, &actor)
+            .await
+            .map(Res::new_data)
     }
 
     /// W-FW3 transform: DELETE /systemManage/deleteRole (body id)
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 delete_role。
     pub async fn delete_role_for_systemmanage(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         Json(input): Json<DeleteRoleByBodyInput>,
     ) -> Result<Res<bool>, AppError> {
         let actor = Actor::from(&user);
-        service.delete_role(&input.id, &actor).await.map(|_| Res::new_data(true))
+        let role_ulid = service.lookup_ulid_by_display_id(input.id).await?;
+        service.delete_role(&role_ulid, &actor).await.map(|_| Res::new_data(true))
     }
 
     /// W-FW3 transform: DELETE /systemManage/batchDeleteRole
     /// per-row Err 不快、continue loop（比照 W-FW2 batch_delete_menu 體例）
+    /// 039 T030.5: input.ids 改 Vec<i64>；逐筆 lookup_ulid_by_display_id 後餵 delete_role；
+    /// 單筆 lookup 失敗（display_id 無對應 role）視為一般 per-row Err、continue loop（不中斷批次）。
     pub async fn batch_delete_role_for_systemmanage(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
@@ -334,8 +344,12 @@ impl SysSystemManageApi {
     ) -> Result<Res<Value>, AppError> {
         let actor = Actor::from(&user);
         let mut deleted_count: usize = 0;
-        for id in input.ids {
-            match service.delete_role(&id, &actor).await {
+        for display_id in input.ids {
+            let ulid = match service.lookup_ulid_by_display_id(display_id).await {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            match service.delete_role(&ulid, &actor).await {
                 Ok(_) => deleted_count += 1,
                 Err(_) => continue,
             }

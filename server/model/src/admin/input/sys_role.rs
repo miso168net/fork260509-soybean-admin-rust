@@ -38,7 +38,9 @@ pub type CreateRoleInput = RoleInput;
 #[derive(Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateRoleInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id；handler 先 lookup ULID 再餵 service。
+    #[validate(range(min = 1, message = "Role ID must be positive"))]
+    pub id: i64,
     #[serde(flatten)]
     pub role: RoleInput,
 }
@@ -58,7 +60,8 @@ pub struct SystemManageAddRoleInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageUpdateRoleInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id
+    pub id: i64,
     pub role_name: String,
     pub role_code: String, // W-FW6 N4：直送 rust update_role（rust 端同步 Casbin policy 並 publish reload）
     pub role_desc: Option<String>,
@@ -69,14 +72,16 @@ pub struct SystemManageUpdateRoleInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteRoleByBodyInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id
+    pub id: i64,
 }
 
 // W-FW3 systemManage: DELETE /systemManage/batchDeleteRole payload
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchDeleteRoleInput {
-    pub ids: Vec<String>,
+    // 039 T030.5: base-web 對外傳 numeric display_id 清單
+    pub ids: Vec<i64>,
 }
 
 // W-FW4 systemManage: POST /systemManage/assignRoleMenus payload

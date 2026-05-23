@@ -41,8 +41,11 @@ pub trait TRoleService {
         actor: &Actor,
     ) -> Result<SysRoleModel, AppError>;
     async fn get_role(&self, id: &str) -> Result<SysRoleModel, AppError>;
+    /// 039 T030.5: 新增 `role_id: &str` 參數承接 handler 端 lookup_ulid_by_display_id 結果。
+    /// `input.id` 為 i64 wire field、service 內部不使用（identity 走 role_id ULID）。
     async fn update_role(
         &self,
+        role_id: &str,
         input: UpdateRoleInput,
         actor: &Actor,
     ) -> Result<SysRoleModel, AppError>;
@@ -185,24 +188,26 @@ impl TRoleService for SysRoleService {
 
     async fn update_role(
         &self,
+        role_id: &str,
         input: UpdateRoleInput,
         actor: &Actor,
     ) -> Result<SysRoleModel, AppError> {
         let db = db_helper::get_db_connection().await?;
         let txn = db.begin().await.map_err(AppError::from)?;
 
-        self.check_role_exists_in_txn(&txn, Some(&input.id), &input.role.code)
+        // 039 T030.5: identity 走 handler 端 lookup 過的 ULID；input.id（i64 wire field）不採用。
+        self.check_role_exists_in_txn(&txn, Some(role_id), &input.role.code)
             .await?;
 
         let before = sys_role::find_active()
-            .filter(SysRoleColumn::Id.eq(&input.id))
+            .filter(SysRoleColumn::Id.eq(role_id))
             .one(&txn)
             .await
             .map_err(AppError::from)?
             .ok_or_else(|| AppError::from(RoleError::RoleNotFound))?;
 
         let role = SysRoleActiveModel {
-            id: Set(input.id.clone()),
+            id: Set(role_id.to_string()),
             pid: Set(input.role.pid),
             code: Set(input.role.code),
             name: Set(input.role.name),

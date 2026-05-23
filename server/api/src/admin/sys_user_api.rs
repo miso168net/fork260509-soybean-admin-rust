@@ -87,13 +87,18 @@ impl SysUserApi {
         service.get_user(&user_ulid).await.map(Res::new_data)
     }
 
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 service。
     pub async fn update_user(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
         let actor = Actor::from(&user);
-        service.update_user(input, &actor).await.map(Res::new_data)
+        let user_ulid = service.lookup_ulid_by_display_id(input.id).await?;
+        service
+            .update_user(&user_ulid, input, &actor)
+            .await
+            .map(Res::new_data)
     }
 
     /// 039 T029: Path<String> → Path<i64> + user_svc.lookup_ulid_by_display_id cascade。
@@ -109,17 +114,21 @@ impl SysUserApi {
 
     // F9 systemManage-alias-router: DELETE /systemManage/deleteUser (body-id payload variant)
     // 重用既有 delete_user service method；handler 差異只在 extractor (Json body 取代 Path)
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 service。
     pub async fn delete_user_by_body(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         Json(input): Json<DeleteUserByBodyInput>,
     ) -> Result<Res<()>, AppError> {
         let actor = Actor::from(&user);
-        service.delete_user(&input.id, &actor).await.map(Res::new_data)
+        let user_ulid = service.lookup_ulid_by_display_id(input.id).await?;
+        service.delete_user(&user_ulid, &actor).await.map(Res::new_data)
     }
 
     // F9 systemManage-alias-router: DELETE /systemManage/batchDeleteUser
     // per-row Err 不快、continue loop（per F9 spec brainstorm Q2 + R-2）
+    /// 039 T030.5: input.ids 改 Vec<i64>；handler 逐筆 lookup_ulid_by_display_id 後餵 service；
+    /// 單筆 lookup 失敗（display_id 無對應 user）視為一般 per-row Err、continue loop（不中斷批次）。
     pub async fn batch_delete_users(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
@@ -127,8 +136,12 @@ impl SysUserApi {
     ) -> Result<Res<Value>, AppError> {
         let actor = Actor::from(&user);
         let mut deleted_count: usize = 0;
-        for id in &input.ids {
-            match service.delete_user(id, &actor).await {
+        for display_id in &input.ids {
+            let ulid = match service.lookup_ulid_by_display_id(*display_id).await {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            match service.delete_user(&ulid, &actor).await {
                 Ok(_) => deleted_count += 1,
                 Err(_) => continue,
             }

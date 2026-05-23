@@ -48,8 +48,11 @@ pub trait TUserService {
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError>;
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError>;
+    /// 039 T030.5: 新增 `user_id: &str` 參數承接 handler 端 lookup_ulid_by_display_id 結果。
+    /// `input.id` 為 i64 wire field、service 內部不使用（identity 走 user_id ULID）。
     async fn update_user(
         &self,
+        user_id: &str,
         input: UpdateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError>;
@@ -221,14 +224,16 @@ impl TUserService for SysUserService {
 
     async fn update_user(
         &self,
+        user_id: &str,
         input: UpdateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError> {
         let db = db_helper::get_db_connection().await?;
         let txn = db.begin().await.map_err(AppError::from)?;
 
+        // 039 T030.5: identity 走 handler 端 lookup 過的 ULID；input.id（i64 wire field）不採用。
         let before = sys_user::find_active()
-            .filter(SysUserColumn::Id.eq(&input.id))
+            .filter(SysUserColumn::Id.eq(user_id))
             .one(&txn)
             .await
             .map_err(AppError::from)?

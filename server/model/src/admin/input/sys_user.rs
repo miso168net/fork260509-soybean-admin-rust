@@ -49,7 +49,9 @@ pub type CreateUserInput = UserInput;
 #[derive(Deserialize, Validate)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateUserInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id；handler 先 lookup ULID 再餵 service。
+    #[validate(range(min = 1, message = "User ID must be positive"))]
+    pub id: i64,
     pub domain: String,
     #[validate(length(min = 1, max = 50, message = "Username must be between 1 and 50 characters"))]
     pub username: String,
@@ -71,14 +73,16 @@ pub struct UpdateUserInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeleteUserByBodyInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id
+    pub id: i64,
 }
 
 // F9 systemManage-alias-router: DELETE /systemManage/batchDeleteUser payload
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchDeleteUserInput {
-    pub ids: Vec<String>,
+    // 039 T030.5: base-web 對外傳 numeric display_id 清單
+    pub ids: Vec<i64>,
 }
 
 // W-FW1 systemManage transform layer: base-web-shaped add/update user DTOs。
@@ -104,7 +108,8 @@ pub struct SystemManageAddUserInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemManageUpdateUserInput {
-    pub id: String,
+    // 039 T030.5: base-web 對外傳 numeric display_id
+    pub id: i64,
     pub user_name: String,
     pub user_gender: Option<String>,
     pub nick_name: String,

@@ -43,13 +43,18 @@ impl SysRoleApi {
         service.get_role(&role_ulid).await.map(Res::new_data)
     }
 
+    /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 service。
     pub async fn update_role(
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         ValidatedForm(input): ValidatedForm<UpdateRoleInput>,
     ) -> Result<Res<SysRoleModel>, AppError> {
         let actor = Actor::from(&user);
-        service.update_role(input, &actor).await.map(Res::new_data)
+        let role_ulid = service.lookup_ulid_by_display_id(input.id).await?;
+        service
+            .update_role(&role_ulid, input, &actor)
+            .await
+            .map(Res::new_data)
     }
 
     /// 039 T028: Path<String> → Path<i64> + role_svc.lookup_ulid_by_display_id cascade。
