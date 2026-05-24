@@ -18,3 +18,4 @@ serde_json = { workspace = true }
 redis = { workspace = true, features = ["cluster-async","connection-manager", "tokio-comp"] }
 mongodb = { workspace = true }
 aws-sdk-s3 = { workspace = true }
+metrics = { workspace = true }

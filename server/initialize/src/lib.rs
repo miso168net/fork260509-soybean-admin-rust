@@ -29,6 +29,7 @@ mod event_channel_initialization;
 mod ip2region_initialization;
 mod jwt_initialization;
 mod log_tracing_init;
+mod metrics_init;
 mod mongo_initialization;
 mod redis_initialization;
 mod router_initialization;

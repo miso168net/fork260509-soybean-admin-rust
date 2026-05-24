@@ -25,6 +25,7 @@ chrono = { workspace = true }
 tracing = { workspace = true, features = ["log"] }
 redis = { workspace = true }
 mongodb = { workspace = true }
+metrics = { workspace = true }
 
 [features]
 default = ["debug-print"]

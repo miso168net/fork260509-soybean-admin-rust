@@ -26,9 +26,11 @@ axum = { workspace = true, features = ["http1", "json"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync"] }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true, features = ["log"] }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
 tracing-error = { workspace = true }
 tracing-log = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 
 http = { workspace = true }

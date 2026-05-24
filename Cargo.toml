@@ -90,6 +90,12 @@ tracing = "0.1"                                                 # 分布式追�
 tracing-subscriber = "0.3"                                      # tracing 库的订阅者实现
 tracing-error = "0.2"                                           # 用于错误跟踪的扩展
 tracing-log = "0.2"                                             # 将日志事件推送到 tracing
+
+# =========================================
+# observability metrics（044 W-F13）
+# =========================================
+metrics = "0.23"                                                # metrics facade（counter/gauge/histogram macros）
+metrics-exporter-prometheus = "0.15"                            # Prometheus exposition format exporter
 log = "0.4"                                                     # 日志库
 env_logger = "0.11"                                             # 环境变量控制的日志实现
 simplelog = "0.12"                                              # 简单日志实现

@@ -19,6 +19,7 @@ http = { workspace = true }
 http-body = { workspace = true }
 http-body-util = { workspace = true }
 bytes = { workspace = true }
+metrics = { workspace = true }
 
 [features]
 default = ["runtime-tokio"]
