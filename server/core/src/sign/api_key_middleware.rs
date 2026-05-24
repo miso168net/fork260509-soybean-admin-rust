@@ -1,9 +1,10 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{HeaderMap, Uri},
+    http::{header, HeaderMap, HeaderValue, Response, StatusCode, Uri},
     middleware::Next,
     response::IntoResponse,
+    Json,
 };
 use once_cell::sync::Lazy;
 use server_constant::definition::consts::SystemEvent;
@@ -110,6 +111,25 @@ fn is_protected_path(uri: &Uri) -> bool {
     }
 }
 
+/// 047 US1 helper：構造 HTTP 401 + WWW-Authenticate: ApiKey + body envelope。
+///
+/// 用於 api_key_middleware 兩 error 分支（missing 5003 / invalid 5004）。
+/// body envelope（{code, data, msg, success}）完全保留、對既有 client 不破壞；
+/// 同時設 HTTP 401 + RFC 7235 / 9110 強制的 WWW-Authenticate header 對齊
+/// standard REST 語義。
+fn unauthorized_response(code: u16, msg: &str) -> Response<Body> {
+    let mut resp = (
+        StatusCode::UNAUTHORIZED,
+        Json(Res::<()>::new_error(code, msg)),
+    )
+        .into_response();
+    resp.headers_mut().insert(
+        header::WWW_AUTHENTICATE,
+        HeaderValue::from_static("ApiKey"),
+    );
+    resp
+}
+
 /// API key validation middleware.
 ///
 /// This middleware checks if the API key is valid for the given request.
@@ -125,12 +145,12 @@ pub async fn api_key_middleware(
 
     match validate_request(&validator, &req) {
         Ok(true) => next.run(req).await.into_response(),
-        Ok(false) => Res::<()>::new_error(
+        Ok(false) => unauthorized_response(
             code::CODE_PERMISSION_API_KEY_SIGNATURE_INVALID,
             "Invalid API key or signature",
         )
         .into_response(),
-        Err(e) => Res::<()>::new_error(code::CODE_PERMISSION_API_KEY_MISSING, e).into_response(),
+        Err(e) => unauthorized_response(code::CODE_PERMISSION_API_KEY_MISSING, e).into_response(),
     }
 }
 
@@ -244,7 +264,32 @@ fn parse_query(query: &str) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{
+        body::{to_bytes, Body},
+        http::{header, Request, StatusCode},
+        middleware::from_fn,
+        routing::get,
+        Router,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tower::ServiceExt;
+
+    async fn dummy_handler() -> &'static str {
+        "ok"
+    }
+
+    fn build_test_router(path: &str, validation: ApiKeyValidation) -> Router {
+        Router::new()
+            .route(path, get(dummy_handler))
+            .layer(from_fn(move |req, next| {
+                api_key_middleware(validation.clone(), req, next)
+            }))
+    }
+
+    async fn parse_body_envelope(response: axum::response::Response) -> serde_json::Value {
+        let body_bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        serde_json::from_slice(&body_bytes).unwrap()
+    }
 
     #[test]
     fn test_api_key_sign() {
@@ -279,5 +324,282 @@ mod tests {
             "URL with signature: /api/url?{}&sign={}",
             signing_string, signature
         );
+    }
+
+    #[tokio::test]
+    async fn simple_missing_api_key_returns_401_with_www_authenticate() {
+        let path = "/test-simple-missing";
+        protect_route(path);
+
+        let validator = SimpleApiKeyValidator::new();
+        validator.add_key("valid-key".to_string());
+        let validation = ApiKeyValidation::Simple(validator, SimpleApiKeyConfig::default());
+
+        let app = build_test_router(path, validation);
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "ApiKey"
+        );
+
+        let body = parse_body_envelope(response).await;
+        assert_eq!(body["code"], 5003);
+        assert_eq!(body["success"], false);
+    }
+
+    #[tokio::test]
+    async fn simple_invalid_api_key_returns_401_with_www_authenticate() {
+        let path = "/test-simple-invalid";
+        protect_route(path);
+
+        let validator = SimpleApiKeyValidator::new();
+        validator.add_key("valid-key".to_string());
+        let validation = ApiKeyValidation::Simple(validator, SimpleApiKeyConfig::default());
+
+        let app = build_test_router(path, validation);
+        let req = Request::builder()
+            .uri(path)
+            .header("x-api-key", "bogus-XYZ")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "ApiKey"
+        );
+
+        let body = parse_body_envelope(response).await;
+        assert_eq!(body["code"], 5004);
+        assert_eq!(body["success"], false);
+    }
+
+    #[tokio::test]
+    async fn simple_valid_api_key_passes_through() {
+        let path = "/test-simple-valid";
+        protect_route(path);
+
+        let validator = SimpleApiKeyValidator::new();
+        validator.add_key("valid-key".to_string());
+        let validation = ApiKeyValidation::Simple(validator, SimpleApiKeyConfig::default());
+
+        let app = build_test_router(path, validation);
+        let req = Request::builder()
+            .uri(path)
+            .header("x-api-key", "valid-key")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&body_bytes[..], b"ok");
+    }
+
+    #[tokio::test]
+    async fn simple_non_protected_path_passes_through() {
+        let path = "/test-simple-non-protected";
+        // intentionally do NOT call protect_route(path) — middleware should short-circuit
+
+        let validator = SimpleApiKeyValidator::new();
+        validator.add_key("any-key".to_string());
+        let validation = ApiKeyValidation::Simple(validator, SimpleApiKeyConfig::default());
+
+        let app = build_test_router(path, validation);
+        let req = Request::builder().uri(path).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers().get(header::WWW_AUTHENTICATE).is_none());
+        let body_bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&body_bytes[..], b"ok");
+    }
+
+    #[tokio::test]
+    async fn complex_missing_field_returns_401_with_www_authenticate() {
+        let path = "/test-complex-missing-field";
+        protect_route(path);
+
+        let validator = ComplexApiKeyValidator::new(None);
+        validator.add_key_secret(
+            "test-access-key".to_string(),
+            "test-secret-key".to_string(),
+        );
+        let validation = ApiKeyValidation::Complex(
+            validator,
+            ComplexApiKeyConfig {
+                key_name: "AccessKeyId".to_string(),
+                timestamp_name: "t".to_string(),
+                nonce_name: "n".to_string(),
+                signature_name: "sign".to_string(),
+            },
+        );
+
+        let app = build_test_router(path, validation);
+        // query missing AccessKeyId
+        let uri = format!("{}?t=1234567890&n=nonce_x&sign=anything", path);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "ApiKey"
+        );
+
+        let body = parse_body_envelope(response).await;
+        assert_eq!(body["code"], 5003);
+        assert_eq!(body["success"], false);
+        let msg = body["msg"].as_str().unwrap_or("");
+        assert!(
+            msg.contains("Missing AccessKeyId"),
+            "expected msg to contain 'Missing AccessKeyId', got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn complex_invalid_signature_returns_401_with_www_authenticate() {
+        let path = "/test-complex-invalid-sig";
+        protect_route(path);
+
+        let validator = ComplexApiKeyValidator::new(None);
+        validator.add_key_secret(
+            "test-access-key".to_string(),
+            "test-secret-key".to_string(),
+        );
+        let validation = ApiKeyValidation::Complex(
+            validator,
+            ComplexApiKeyConfig {
+                key_name: "AccessKeyId".to_string(),
+                timestamp_name: "t".to_string(),
+                nonce_name: "n".to_string(),
+                signature_name: "sign".to_string(),
+            },
+        );
+
+        let app = build_test_router(path, validation);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let uri = format!(
+            "{}?AccessKeyId=test-access-key&t={}&n=nonce_x&sign=wronghex",
+            path, timestamp
+        );
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "ApiKey"
+        );
+
+        let body = parse_body_envelope(response).await;
+        assert_eq!(body["code"], 5004);
+        assert_eq!(body["success"], false);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn complex_valid_signed_request_passes_through() {
+        let path = "/test-complex-valid";
+        protect_route(path);
+
+        let validator = ComplexApiKeyValidator::new(None);
+        validator.add_key_secret(
+            "test-access-key".to_string(),
+            "test-secret-key".to_string(),
+        );
+        let validation = ApiKeyValidation::Complex(
+            validator.clone(),
+            ComplexApiKeyConfig {
+                key_name: "AccessKeyId".to_string(),
+                timestamp_name: "t".to_string(),
+                nonce_name: "n".to_string(),
+                signature_name: "sign".to_string(),
+            },
+        );
+
+        let app = build_test_router(path, validation);
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as i64;
+        let nonce = format!("nonce_{}", timestamp);
+
+        let mut params = vec![
+            ("AccessKeyId".to_string(), "test-access-key".to_string()),
+            ("t".to_string(), timestamp.to_string()),
+            ("n".to_string(), nonce.clone()),
+        ];
+        params.sort_by(|a, b| a.0.cmp(&b.0));
+        let signing_string = params
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join("&");
+        let signature = validator.calculate_signature(&signing_string, "test-secret-key");
+
+        let uri = format!("{}?{}&sign={}", path, signing_string, signature);
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+        assert_eq!(&body_bytes[..], b"ok");
+    }
+
+    #[tokio::test]
+    async fn complex_invalid_timestamp_returns_401_with_www_authenticate() {
+        let path = "/test-complex-invalid-ts";
+        protect_route(path);
+
+        let validator = ComplexApiKeyValidator::new(None);
+        validator.add_key_secret(
+            "test-access-key".to_string(),
+            "test-secret-key".to_string(),
+        );
+        let validation = ApiKeyValidation::Complex(
+            validator,
+            ComplexApiKeyConfig {
+                key_name: "AccessKeyId".to_string(),
+                timestamp_name: "t".to_string(),
+                nonce_name: "n".to_string(),
+                signature_name: "sign".to_string(),
+            },
+        );
+
+        let app = build_test_router(path, validation);
+        let uri = format!(
+            "{}?AccessKeyId=test-access-key&t=not-a-number&n=nonce_x&sign=anything",
+            path
+        );
+        let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers().get(header::WWW_AUTHENTICATE).unwrap(),
+            "ApiKey"
+        );
+
+        let body = parse_body_envelope(response).await;
+        assert_eq!(body["code"], 5003);
+        assert_eq!(body["success"], false);
+        assert_eq!(body["msg"], "Invalid timestamp");
     }
 }
