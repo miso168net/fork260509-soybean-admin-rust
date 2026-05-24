@@ -2,22 +2,11 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
 use async_trait::async_trait;
-use chrono::Local;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, IntoActiveModel, PaginatorTrait,
-    QueryFilter, Set, TransactionTrait,
-};
-use server_core::web::{
-    audit::{Actor, AuditEvent, AuditOperation, AuditSource},
-    error::AppError,
-    page::PaginatedData,
-};
+use sea_orm::{ColumnTrait, Condition, DatabaseConnection, PaginatorTrait, QueryFilter};
+use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
-    audit_log,
-    audit_serialize::audit_snapshot,
     facade::sys_endpoint::{
-        self, ActiveModel as SysEndpointActiveModel, Column as SysEndpointColumn,
-        Model as SysEndpointModel,
+        self, BatchDeletePolicy, Column as SysEndpointColumn, Model as SysEndpointModel,
     },
     input::EndpointPageRequest,
     output::EndpointTree,
@@ -56,86 +45,25 @@ pub trait TEndpointService {
 pub struct SysEndpointService;
 
 impl SysEndpointService {
-    /// F2.1 N-row 策略（per spec Edge Case + clarify Q3-extra）：sync 內每筆 endpoint
-    /// 變動寫 1 個對應 audit row、不 batch summary。原 batch insert_many.on_conflict
-    /// upsert 改 per-entity INSERT/UPDATE loop、犧牲性能換 audit 粒度。
-    async fn upsert_endpoint_with_audit(
-        &self,
-        txn: &sea_orm::DatabaseTransaction,
-        endpoint: SysEndpointModel,
-        actor: &Actor,
-    ) -> Result<(), AppError> {
-        let now = Local::now().naive_local();
-        let existing = sys_endpoint::find_active()
-            .filter(SysEndpointColumn::Id.eq(&endpoint.id))
-            .one(txn)
-            .await
-            .map_err(AppError::from)?;
-
-        if let Some(existing_row) = existing {
-            let mut am: SysEndpointActiveModel = existing_row.clone().into_active_model();
-            am.path = Set(endpoint.path);
-            am.method = Set(endpoint.method);
-            am.action = Set(endpoint.action);
-            am.resource = Set(endpoint.resource);
-            am.controller = Set(endpoint.controller);
-            am.summary = Set(endpoint.summary);
-            am.updated_at = Set(Some(now));
-
-            let updated = am.update(txn).await.map_err(AppError::from)?;
-
-            audit_log::write_in_txn(
-                txn,
-                AuditEvent {
-                    actor,
-                    operation: AuditOperation::Update,
-                    entity_type: "sys_endpoint",
-                    entity_id: updated.id.clone(),
-                    payload_before: Some(audit_snapshot(&existing_row)),
-                    payload_after: Some(audit_snapshot(&updated)),
-                    description: None,
-                    source: AuditSource::Internal,
-                    request_id: None,
-                },
-            )
-            .await?;
-        } else {
-            let am: SysEndpointActiveModel = endpoint.into_active_model();
-            let new_row = am.insert(txn).await.map_err(AppError::from)?;
-
-            audit_log::write_in_txn(
-                txn,
-                AuditEvent {
-                    actor,
-                    operation: AuditOperation::Insert,
-                    entity_type: "sys_endpoint",
-                    entity_id: new_row.id.clone(),
-                    payload_before: None,
-                    payload_after: Some(audit_snapshot(&new_row)),
-                    description: None,
-                    source: AuditSource::Internal,
-                    request_id: None,
-                },
-            )
-            .await?;
-        }
-
-        Ok(())
-    }
-
+    /// 045 F3-N3：endpoint_sync periodic job 採 log-and-continue：個別 endpoint 軟刪失敗
+    /// （含已被前次 sync 軟刪導致返 6001）不阻斷後續 ID 處理，下次 sync 自然 retry。
+    /// 實際 per-row soft_delete + audit + warn log 邏輯下放 facade
+    /// `batch_soft_delete_with_audit`（per data-model.md §E1.2、quickstart Step 1.2）。
     async fn batch_remove_endpoints(
         &self,
         db: &DatabaseConnection,
         endpoints_to_remove: Vec<String>,
     ) -> Result<(), AppError> {
-        // endpoint_sync 是 periodic job、採 log-and-continue：個別 endpoint 軟刪失敗
-        // （含已被前次 sync 軟刪導致返 6001）不阻斷後續 ID 處理，下次 sync 自然 retry。
         let actor = Actor::system("endpoint_sync");
-        for id in endpoints_to_remove {
-            if let Err(e) = sys_endpoint::soft_delete_by_id(db, id.clone(), &actor).await {
-                tracing::warn!(target: "endpoint_sync", id = %id, error = ?e, "soft_delete failed");
-            }
-        }
+        sys_endpoint::batch_soft_delete_with_audit(
+            db,
+            endpoints_to_remove,
+            &actor,
+            BatchDeletePolicy::LogAndContinue {
+                target: "endpoint_sync",
+            },
+        )
+        .await?;
         Ok(())
     }
 
@@ -191,13 +119,12 @@ impl TEndpointService for SysEndpointService {
             .await
             .map_err(AppError::from)?;
 
-        // F2.1: per-entity upsert + audit（N-row 策略、取代既有 batch insert_many.on_conflict）
-        let txn = db.begin().await.map_err(AppError::from)?;
+        // 045 F3-N1: per-entity upsert + audit 邏輯下放 facade `upsert_with_audit`、
+        // 每筆 endpoint 各自開 row-level txn、保留 N-row 1-row-per-audit 粒度。
+        // service 層僅負責 orchestration（loop + 對齊既有 vs 新 endpoint 集合）。
         for endpoint in new_endpoints.iter() {
-            self.upsert_endpoint_with_audit(&txn, endpoint.clone(), &actor)
-                .await?;
+            sys_endpoint::upsert_with_audit(db.as_ref(), endpoint.clone(), &actor).await?;
         }
-        txn.commit().await.map_err(AppError::from)?;
 
         // 只有在数据库中已经存在端点的情况下才执行删除操作
         if !existing_endpoints.is_empty() {
