@@ -17,10 +17,10 @@ use server_model::admin::audit_log;
 use server_model::admin::entities::sys_operation_log;
 use ulid::Ulid;
 
-use common::{connect, test_actor};
+use common::{audit_pipeline::wait_for_audit_row, connect, test_actor};
 
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn http_audit_event_writes_with_method_url_ip_useragent_filled() {
     let db = connect().await;
     let actor = test_actor("g6_http");
@@ -50,12 +50,21 @@ async fn http_audit_event_writes_with_method_url_ip_useragent_filled() {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let audit = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::EntityId.eq(&entity_id))
-        .one(db.as_ref())
-        .await
-        .unwrap()
-        .expect("audit row should exist");
+    let audit = wait_for_audit_row(
+        || {
+            let db = db.clone();
+            let entity_id = entity_id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::EntityId.eq(&entity_id))
+                    .one(db.as_ref())
+                    .await
+            }
+        },
+        500,
+    )
+    .await
+    .expect("audit row should appear before 500ms timeout");
     assert_eq!(audit.operation, "INSERT");
     assert_eq!(audit.method, "POST"); // HTTP method
     assert_eq!(audit.url, "/api/sys-user");
@@ -71,7 +80,7 @@ async fn http_audit_event_writes_with_method_url_ip_useragent_filled() {
 
 // AuditSource::Internal vs Http 驗證 method 欄不同
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn http_source_writes_post_method_internal_writes_internal() {
     let db = connect().await;
     let actor = test_actor("g6_source");
@@ -118,20 +127,38 @@ async fn http_source_writes_post_method_internal_writes_internal() {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let int_audit = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::EntityId.eq(&internal_id))
-        .one(db.as_ref())
-        .await
-        .unwrap()
-        .unwrap();
+    let int_audit = wait_for_audit_row(
+        || {
+            let db = db.clone();
+            let internal_id = internal_id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::EntityId.eq(&internal_id))
+                    .one(db.as_ref())
+                    .await
+            }
+        },
+        500,
+    )
+    .await
+    .expect("INTERNAL audit row should appear before 500ms timeout");
     assert_eq!(int_audit.method, "INTERNAL");
 
-    let http_audit = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::EntityId.eq(&http_id))
-        .one(db.as_ref())
-        .await
-        .unwrap()
-        .unwrap();
+    let http_audit = wait_for_audit_row(
+        || {
+            let db = db.clone();
+            let http_id = http_id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::EntityId.eq(&http_id))
+                    .one(db.as_ref())
+                    .await
+            }
+        },
+        500,
+    )
+    .await
+    .expect("HTTP audit row should appear before 500ms timeout");
     assert_eq!(http_audit.method, "POST");
 
     let _ = sys_operation_log::Entity::delete_many()

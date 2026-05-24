@@ -3,6 +3,8 @@
 //! 此 mod 被 `soft_delete_*.rs` 三個 integration test 檔 `mod common;` 引入。
 //! 所有 test 透過 `#[ignore]` 標註、需 export `TEST_DATABASE_URL` 並先跑 migration up 才會跑。
 
+pub mod audit_pipeline;
+
 use std::sync::Arc;
 
 use sea_orm::{Database, DatabaseConnection};

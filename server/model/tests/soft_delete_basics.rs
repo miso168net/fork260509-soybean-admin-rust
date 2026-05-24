@@ -50,6 +50,7 @@ async fn partial_unique_index_allows_reuse_after_soft_delete() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -74,6 +75,7 @@ async fn partial_unique_index_allows_reuse_after_soft_delete() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await;
@@ -103,6 +105,7 @@ async fn partial_unique_index_allows_reuse_after_soft_delete() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -144,6 +147,7 @@ async fn find_active_excludes_soft_deleted() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -205,6 +209,7 @@ async fn soft_delete_writes_audit_in_same_transaction() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -263,6 +268,7 @@ async fn restore_resets_deleted_at_and_writes_audit() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await

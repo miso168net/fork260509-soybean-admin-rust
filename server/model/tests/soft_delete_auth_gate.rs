@@ -44,6 +44,7 @@ async fn soft_deleted_user_not_findable_by_active_filter() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await

@@ -23,7 +23,7 @@ use common::{connect, test_actor};
 // Scenario 13 — INSERT 業務 + INSERT audit 同 txn，手動 rollback 模擬 business fail
 // → 業務 row 與 audit row 都不留。
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn explicit_rollback_drops_both_business_and_audit_rows() {
     let db = connect().await;
     let id = Ulid::new().to_string();
@@ -50,6 +50,7 @@ async fn explicit_rollback_drops_both_business_and_audit_rows() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     };
     let user_model = user_am.insert(&txn).await.unwrap();
 
@@ -94,7 +95,7 @@ async fn explicit_rollback_drops_both_business_and_audit_rows() {
 // Scenario 14 — business UPDATE unique violation → audit row 不寫。
 // setup 兩 user、txn 內把 bob 改名為 alice（撞 partial unique）→ update fail → drop 自動 rollback。
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn business_unique_violation_drops_audit_row() {
     let db = connect().await;
     let alice_id = Ulid::new().to_string();
@@ -120,6 +121,7 @@ async fn business_unique_violation_drops_audit_row() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -141,6 +143,7 @@ async fn business_unique_violation_drops_audit_row() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await

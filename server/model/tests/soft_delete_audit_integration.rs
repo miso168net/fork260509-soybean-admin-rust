@@ -20,11 +20,11 @@ use server_model::admin::entities::sys_user as user_entity;
 use server_model::admin::facade::sys_user;
 use ulid::Ulid;
 
-use common::{connect, test_actor};
+use common::{audit_pipeline::wait_for_audit_count, connect, test_actor};
 
 // 對已軟刪 row 再次 soft_delete → CODE_BUSINESS_ENTITY_NOT_FOUND (6001)
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn double_soft_delete_returns_not_found() {
     let db = connect().await;
     let id = Ulid::new().to_string();
@@ -45,6 +45,7 @@ async fn double_soft_delete_returns_not_found() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -74,7 +75,7 @@ async fn double_soft_delete_returns_not_found() {
 // 對 active row restore → CODE_BUSINESS_ENTITY_NOT_FOUND (6001)
 // （restore_by_id WHERE deleted_at IS NOT NULL 找不到）
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn restore_active_row_returns_not_found() {
     let db = connect().await;
     let id = Ulid::new().to_string();
@@ -95,6 +96,7 @@ async fn restore_active_row_returns_not_found() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -115,7 +117,7 @@ async fn restore_active_row_returns_not_found() {
 
 // 多次 SOFT_DELETE / RESTORE / SOFT_DELETE → 應有 3 個 audit row
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn audit_row_count_matches_operations() {
     let db = connect().await;
     let id = Ulid::new().to_string();
@@ -136,6 +138,7 @@ async fn audit_row_count_matches_operations() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -153,13 +156,24 @@ async fn audit_row_count_matches_operations() {
         .unwrap();
     // 預期 3 個 audit row（SOFT_DELETE / RESTORE / SOFT_DELETE）
 
-    let count = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::ModuleName.eq("sys_user"))
-        .filter(sys_operation_log::Column::Description.contains(&id))
-        .filter(sys_operation_log::Column::Method.eq("INTERNAL"))
-        .count(db.as_ref())
-        .await
-        .unwrap();
+    let count = wait_for_audit_count(
+        || {
+            let db = db.clone();
+            let id = id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::ModuleName.eq("sys_user"))
+                    .filter(sys_operation_log::Column::Description.contains(&id))
+                    .filter(sys_operation_log::Column::Method.eq("INTERNAL"))
+                    .count(db.as_ref())
+                    .await
+            }
+        },
+        3,
+        500,
+    )
+    .await
+    .expect("expected 3 audit rows (SOFT_DELETE + RESTORE + SOFT_DELETE) before 500ms timeout");
     assert_eq!(
         count, 3,
         "expected 3 audit rows (SOFT_DELETE + RESTORE + SOFT_DELETE)"

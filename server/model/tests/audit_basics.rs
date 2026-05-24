@@ -22,11 +22,11 @@ use server_model::admin::entities::{sys_operation_log, sys_role, sys_user};
 use server_model::admin::facade::sys_user as sys_user_facade;
 use ulid::Ulid;
 
-use common::{connect, test_actor};
+use common::{audit_pipeline::wait_for_audit_row, connect, test_actor};
 
 // Scenario 4 — service handler 構造 AuditEvent { Insert, source: Internal } 寫 sys_operation_log row
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn audit_event_internal_insert_writes_row_correctly() {
     let db = connect().await;
     let actor = test_actor("g6_audit_insert");
@@ -51,17 +51,26 @@ async fn audit_event_internal_insert_writes_row_correctly() {
     .unwrap();
     txn.commit().await.unwrap();
 
-    let audit = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::EntityId.eq(&entity_id))
-        .filter(sys_operation_log::Column::Operation.eq("INSERT"))
-        .one(db.as_ref())
-        .await
-        .unwrap()
-        .expect("audit row should exist");
+    let audit = wait_for_audit_row(
+        || {
+            let db = db.clone();
+            let entity_id = entity_id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::EntityId.eq(&entity_id))
+                    .filter(sys_operation_log::Column::Operation.eq("INSERT"))
+                    .one(db.as_ref())
+                    .await
+            }
+        },
+        500,
+    )
+    .await
+    .expect("audit row should appear before 500ms timeout");
     assert_eq!(audit.module_name, "sys_user");
     assert_eq!(audit.method, "INTERNAL");
     assert!(audit.payload_before.is_none());
-    assert_eq!(audit.payload_after.unwrap()["username"], "g6test");
+    assert_eq!(audit.payload_after.clone().unwrap()["username"], "g6test");
 
     // cleanup
     let _ = sys_operation_log::Entity::delete_by_id(audit.id)
@@ -71,7 +80,7 @@ async fn audit_event_internal_insert_writes_row_correctly() {
 
 // Scenario 7 — AuditSerialize redaction sys_user.password
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn audit_snapshot_redacts_sys_user_password() {
     let user_model = sys_user::Model {
         id: "test-id".to_string(),
@@ -90,6 +99,7 @@ async fn audit_snapshot_redacts_sys_user_password() {
         updated_at: None,
         updated_by: None,
         deleted_at: None,
+        display_id: 0i64,
     };
     let v = audit_snapshot(&user_model);
     assert_eq!(v["password"], "<redacted>");
@@ -98,7 +108,7 @@ async fn audit_snapshot_redacts_sys_user_password() {
 
 // Scenario 8 — AuditSerialize redaction sys_access_key.access_key_secret (camelCase)
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn audit_snapshot_redacts_sys_access_key_secret() {
     use server_model::admin::entities::sys_access_key;
     let key = sys_access_key::Model {
@@ -111,6 +121,7 @@ async fn audit_snapshot_redacts_sys_access_key_secret() {
         created_at: Local::now().naive_local(),
         created_by: "test".to_string(),
         deleted_at: None,
+        display_id: 0i64,
     };
     let v = audit_snapshot(&key);
     assert_eq!(v["accessKeySecret"], "<redacted>");
@@ -119,7 +130,7 @@ async fn audit_snapshot_redacts_sys_access_key_secret() {
 
 // Scenario 9 — 5 other entity（sys_role/menu/domain/organization/endpoint）no redaction
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn audit_snapshot_no_redaction_for_non_sensitive_entity() {
     let role = sys_role::Model {
         id: "test-id".to_string(),
@@ -133,6 +144,8 @@ async fn audit_snapshot_no_redaction_for_non_sensitive_entity() {
         updated_at: None,
         updated_by: None,
         deleted_at: None,
+        display_id: 0i64,
+        home_route_name: None,
     };
     let v = audit_snapshot(&role);
     assert_eq!(v["code"], "test_role");
@@ -147,7 +160,7 @@ async fn audit_snapshot_no_redaction_for_non_sensitive_entity() {
 
 // Scenario 12 — F3 既有 soft_delete refactor 後（G2 already）走 AuditEvent、payload_before 含 snapshot
 #[tokio::test]
-#[ignore = "requires real postgres + migration up"]
+#[ignore = "requires dev stack drainer running (audit outbox → sys_operation_log async pipeline)"]
 async fn soft_delete_writes_audit_event_with_snapshot() {
     let db = connect().await;
     let id = Ulid::new().to_string();
@@ -171,6 +184,7 @@ async fn soft_delete_writes_audit_event_with_snapshot() {
         updated_by: Set(None),
         deleted_at: Set(None),
         gender: sea_orm::ActiveValue::NotSet,
+        display_id: Set(Local::now().timestamp_nanos_opt().unwrap_or(1)),
     }
     .insert(db.as_ref())
     .await
@@ -182,17 +196,26 @@ async fn soft_delete_writes_audit_event_with_snapshot() {
         .unwrap();
 
     // 驗 audit row：operation=SOFT_DELETE, payload_before 含 snapshot 且 password redacted
-    let audit = sys_operation_log::Entity::find()
-        .filter(sys_operation_log::Column::EntityId.eq(&id))
-        .filter(sys_operation_log::Column::Operation.eq("SOFT_DELETE"))
-        .filter(sys_operation_log::Column::Method.eq("INTERNAL"))
-        .one(db.as_ref())
-        .await
-        .unwrap()
-        .expect("SOFT_DELETE audit row should exist");
+    let audit = wait_for_audit_row(
+        || {
+            let db = db.clone();
+            let id = id.clone();
+            async move {
+                sys_operation_log::Entity::find()
+                    .filter(sys_operation_log::Column::EntityId.eq(&id))
+                    .filter(sys_operation_log::Column::Operation.eq("SOFT_DELETE"))
+                    .filter(sys_operation_log::Column::Method.eq("INTERNAL"))
+                    .one(db.as_ref())
+                    .await
+            }
+        },
+        500,
+    )
+    .await
+    .expect("SOFT_DELETE audit row should appear before 500ms timeout");
 
     assert!(audit.payload_before.is_some());
-    let before_snap = audit.payload_before.unwrap();
+    let before_snap = audit.payload_before.clone().unwrap();
     assert_eq!(before_snap["username"], username);
     assert_eq!(before_snap["password"], "<redacted>");
     assert!(audit.payload_after.is_none());
