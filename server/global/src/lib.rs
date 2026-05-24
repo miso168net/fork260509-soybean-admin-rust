@@ -1,10 +1,12 @@
 pub use jsonwebtoken::Validation;
 
+pub mod api_key_notify;
 pub mod audit_publisher;
 pub mod casbin_notify;
 pub mod global;
 pub mod snowflake;
 
+pub use api_key_notify::{notify_api_key_changed, API_KEY_INVALIDATE_CHANNEL};
 pub use audit_publisher::{publish_audit_event, AUDIT_STREAM_KEY, AUDIT_STREAM_MAXLEN_APPROX};
 pub use casbin_notify::{notify_casbin_changed, CASBIN_INVALIDATE_CHANNEL};
 
