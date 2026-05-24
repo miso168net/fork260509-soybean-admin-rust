@@ -253,7 +253,7 @@ where
                 BatchDeletePolicy::FailFast => return Err(e),
                 BatchDeletePolicy::LogAndContinue { target } => {
                     tracing::warn!(
-                        target: target,
+                        target = target,
                         id = %id,
                         error = ?e,
                         "batch_soft_delete: per-row soft_delete failed"
