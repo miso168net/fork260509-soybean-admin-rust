@@ -17,6 +17,12 @@ jwt:
 redis:
     mode: single
     url: "redis://:123456@localhost:6379/2"
+# 042 audit-outbox-and-http-mount: drainer + Redis Stream publisher 配置
+audit_outbox:
+    drainer_batch_size: 100
+    drainer_sleep_interval_ms: 50
+    drainer_max_retry: 5
+    redis_stream_maxlen_approx: 10000
 # 由于本项目最终目标可能仅仅作为一般rbac项目,因此redis作为可选组件,可以根据实际情况进行按需使用
 # 有需求自行取消注释
 # redis:

@@ -1,9 +1,11 @@
 pub use jsonwebtoken::Validation;
 
+pub mod audit_publisher;
 pub mod casbin_notify;
 pub mod global;
 pub mod snowflake;
 
+pub use audit_publisher::{publish_audit_event, AUDIT_STREAM_KEY, AUDIT_STREAM_MAXLEN_APPROX};
 pub use casbin_notify::{notify_casbin_changed, CASBIN_INVALIDATE_CHANNEL};
 
 #[macro_export]

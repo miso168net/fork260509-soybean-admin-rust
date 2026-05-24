@@ -19,6 +19,12 @@ jwt:
 redis:
     mode: single
     url: "redis://:123456@redis:6379/10"
+# 042 audit-outbox-and-http-mount: drainer + Redis Stream publisher 配置
+audit_outbox:
+    drainer_batch_size: 100
+    drainer_sleep_interval_ms: 50
+    drainer_max_retry: 5
+    redis_stream_maxlen_approx: 10000
 # 可选 自行配置
 # mongo:
 #     uri: "mongodb://localhost:27017"

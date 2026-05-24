@@ -76,6 +76,8 @@ impl MigratorTrait for Migrator {
             Box::new(schemas::m20260524_d_add_display_id_to_business_entities::Migration),
             // 039 rust-entity-id-numeric-migration (A4): 5 entity backfill Snowflake i64 + DROP DEFAULT + ADD UNIQUE
             Box::new(datas::m20260524_e_backfill_display_id::Migration),
+            // 042 audit-outbox-and-http-mount: 新增 sys_audit_outbox 表為 audit event 耐久暫存區
+            Box::new(schemas::m20260524_e_audit_outbox_table::Migration),
         ]
     }
 }

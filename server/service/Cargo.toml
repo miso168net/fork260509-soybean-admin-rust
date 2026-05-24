@@ -6,6 +6,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+server-config = { path = "../config" }
 server-constant = { path = "../constant" }
 server-core = { path = "../core" }
 server-global = { path = "../global" }
@@ -16,6 +17,7 @@ axum-casbin = { path = "../../axum-casbin" }
 async-trait = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt"] }
 sea-orm = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }

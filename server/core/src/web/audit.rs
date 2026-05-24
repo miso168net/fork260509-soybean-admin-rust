@@ -13,12 +13,16 @@
 //! - `Actor::system(name)` — system actor（domain 固定 `"_system"`）
 //! - `Actor::from(&user)` — 從 axum `Extension<User>` 構造
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::web::auth::User;
 
 /// 寫 audit 時的 actor 來源 — 一般 user / system actor 兩種建構途徑
-#[derive(Clone, Debug)]
+///
+/// 042: Serialize+Deserialize derived — outbox payload JSONB 需 serialize 寫入，
+/// drainer 端 deserialize 後重建 sys_operation_log row（per data-model.md §E1）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Actor {
     /// user_id（一般 caller）or system actor name（如 `"cleanup_job"` / `"migration"`）
     pub id: String,
@@ -55,7 +59,11 @@ impl From<&User> for Actor {
 // =============================================================================
 
 /// write 操作分類（per spec FR-005 + data-model.md §E2）
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// 042: Serialize+Deserialize derived for outbox round-trip。
+/// 序列化形式 = SCREAMING_SNAKE_CASE（對齊 `as_str()` + sys_operation_log.operation 欄值）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AuditOperation {
     Insert,
     Update,
@@ -85,7 +93,12 @@ impl std::fmt::Display for AuditOperation {
 }
 
 /// audit 來源視角（per spec FR-005 + data-model.md §E3）
-#[derive(Clone, Debug)]
+///
+/// 042: Serialize+Deserialize derived；JSONB 內以 `{"type":"Http",...}` /
+/// `{"type":"Internal"}` / `{"type":"Cleanup"}` 形式呈現（per data-model.md §E1
+/// audit_event_json JSONB schema）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum AuditSource {
     /// HTTP middleware audit — method 為 POST/PUT/PATCH/DELETE 等
     Http {
@@ -101,7 +114,10 @@ pub enum AuditSource {
 }
 
 /// audit 寫入單位（取代 F3 `AuditLogCtx`、per spec FR-005 + data-model.md §E4）
-#[derive(Clone, Debug)]
+///
+/// 042: 僅 Serialize derived（drainer 端用 [`AuditEventOwned`] 反序列化、
+/// 因為 `&'a Actor` 與 `&'static str entity_type` 不能直接 Deserialize）。
+#[derive(Clone, Debug, Serialize)]
 pub struct AuditEvent<'a> {
     pub actor: &'a Actor,
     pub operation: AuditOperation,
@@ -114,6 +130,23 @@ pub struct AuditEvent<'a> {
     /// 變動後 entity snapshot — INSERT/UPDATE/Restore=Some / SoftDelete=None
     pub payload_after: Option<JsonValue>,
     /// 可選 human-readable summary（None 時 audit_log 自動填 `"{operation} id={entity_id}"`）
+    pub description: Option<String>,
+    pub source: AuditSource,
+    pub request_id: Option<String>,
+}
+
+/// 042: owned 版本的 `AuditEvent`，drainer 端從 outbox JSONB deserialize 用。
+///
+/// 與 `AuditEvent<'a>` 對應、欄位名 / 序列化形式相同；差別僅在於 `actor` 改為擁有式
+/// 且 `entity_type` 改為 `String`（無 `&'static`）。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuditEventOwned {
+    pub actor: Actor,
+    pub operation: AuditOperation,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub payload_before: Option<JsonValue>,
+    pub payload_after: Option<JsonValue>,
     pub description: Option<String>,
     pub source: AuditSource,
     pub request_id: Option<String>,

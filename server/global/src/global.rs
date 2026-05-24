@@ -277,3 +277,75 @@ pub fn send_dyn_event(event_name: &'static str, event: Box<dyn Any + Send>) {
         }
     });
 }
+
+//*****************************************************************************
+// 042 request_id tokio task-local（INTERNAL audit row 串聯 HTTP audit row 用）
+//*****************************************************************************
+//
+// OperationLogLayer 從 RequestId extension 拿到 request_id 後、用
+// `REQUEST_ID_TASK_LOCAL.scope(...)` 包住 inner.call(req).await；handler / service /
+// `audit_log::write_in_txn` 全在同一 tokio task 內、可由 `.try_with(...)` 取得當前
+// request 的 request_id。
+//
+// 用途：service-level audit 建構 AuditEvent 時 `request_id: None`（030-040 callsite 不改）、
+// 由 write_in_txn 在 serialize 前自動 fallback 至 task-local 值。HTTP 與 INTERNAL row 因此
+// 共用同一 request_id、forensic 可串聯（per spec data-model §E3）。
+tokio::task_local! {
+    pub static REQUEST_ID_TASK_LOCAL: String;
+}
+
+//*****************************************************************************
+// 042 HTTP audit outbox writer registry
+//*****************************************************************************
+//
+// `server-core::web::operation_log` middleware 需要呼叫 `server-model::admin::audit_log::
+// write_outbox_for_http`，但 core → model 反向 dep 不允許。改採 callback registry
+// pattern：模型側透過 [`register_http_audit_writer`] 註冊寫入函式；middleware 用
+// [`spawn_http_audit_write`] 觸發、fire-and-forget。
+//
+// 註冊發生於 `server-initialize::initialize_audit_outbox_drainer`（drainer 起動同步註冊
+// 一次），實際呼叫 in HTTP middleware post-execution hook。失敗只 warn、不影響 response
+// （per spec FR-008）。
+
+/// HTTP audit writer 函式簽名：取 `OperationLogContext`、async 寫 outbox、回 unit/Result。
+/// Box::pin async block 為 trait-object-friendly 形式。
+pub type HttpAuditWriter = Box<
+    dyn Fn(OperationLogContext) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync,
+>;
+
+static HTTP_AUDIT_WRITER: Lazy<RwLock<Option<HttpAuditWriter>>> =
+    Lazy::new(|| RwLock::new(None));
+
+/// 042: 註冊 HTTP audit outbox writer（initialize 階段呼叫一次）。
+pub async fn register_http_audit_writer(writer: HttpAuditWriter) {
+    let mut guard = HTTP_AUDIT_WRITER.write().await;
+    *guard = Some(writer);
+}
+
+/// 042: middleware 用 — fire-and-forget spawn writer 寫 outbox；無 writer 註冊則 warn。
+/// 失敗只 log warn、不返 error、不影響 response（per spec FR-008）。
+#[inline]
+pub fn spawn_http_audit_write(ctx: OperationLogContext) {
+    tokio::spawn(async move {
+        let guard = HTTP_AUDIT_WRITER.read().await;
+        match guard.as_ref() {
+            Some(writer) => {
+                if let Err(e) = writer(ctx).await {
+                    tracing::warn!(
+                        target: "operation_log_middleware",
+                        error = %e,
+                        "HTTP audit outbox write failed (response unaffected)"
+                    );
+                }
+            }
+            None => {
+                tracing::warn!(
+                    target: "operation_log_middleware",
+                    "HTTP_AUDIT_WRITER 未註冊、middleware audit 寫入跳過"
+                );
+            }
+        }
+    });
+}

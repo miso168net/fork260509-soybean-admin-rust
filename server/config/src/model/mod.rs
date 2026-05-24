@@ -1,3 +1,4 @@
+pub use audit_outbox_config::AuditOutboxConfig;
 pub use config::Config;
 pub use database_config::{DatabaseConfig, DatabasesInstancesConfig};
 pub use jwt_config::JwtConfig;
@@ -19,6 +20,7 @@ impl<T> From<Option<Vec<T>>> for OptionalConfigs<T> {
     }
 }
 
+mod audit_outbox_config;
 mod config;
 mod database_config;
 mod jwt_config;

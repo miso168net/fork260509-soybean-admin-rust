@@ -1,4 +1,5 @@
 pub use access_key_initialization::initialize_access_key;
+pub use audit_outbox_initialization::initialize_audit_outbox_drainer;
 pub use aws_s3_initialization::{init_primary_s3, init_s3_pools};
 pub use casbin_initialization::initialize_casbin;
 pub use casbin_sync_initialization::spawn_casbin_sync_subscriber;
@@ -18,6 +19,7 @@ pub use server_global::{project_error, project_info};
 pub use server_initialization::get_server_address;
 
 mod access_key_initialization;
+mod audit_outbox_initialization;
 mod aws_s3_initialization;
 mod casbin_initialization;
 mod casbin_sync_initialization;

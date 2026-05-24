@@ -1,8 +1,9 @@
 use serde::Deserialize;
 
 use super::{
-    DatabaseConfig, DatabasesInstancesConfig, JwtConfig, MongoConfig, MongoInstancesConfig,
-    RedisConfig, RedisInstancesConfig, S3Config, S3InstancesConfig, ServerConfig,
+    AuditOutboxConfig, DatabaseConfig, DatabasesInstancesConfig, JwtConfig, MongoConfig,
+    MongoInstancesConfig, RedisConfig, RedisInstancesConfig, S3Config, S3InstancesConfig,
+    ServerConfig,
 };
 
 /// 应用程序配置结构
@@ -122,4 +123,7 @@ pub struct Config {
     /// 可选的 S3 连接池配置
     /// 用于配置多个命名的 S3 连接
     pub s3_instances: Option<Vec<S3InstancesConfig>>,
+
+    /// 042 audit-outbox-and-http-mount: audit_outbox drainer + Redis Stream publisher 配置
+    pub audit_outbox: Option<AuditOutboxConfig>,
 }

@@ -4,16 +4,17 @@ use axum::{
     Router,
 };
 use server_api::admin::{SysAuthenticationApi, SysMenuApi};
-use server_core::web::operation_log::OperationLogLayer;
 use server_global::global::{add_route, RouteInfo};
 
 pub struct SysMenuRouter;
 
 impl SysMenuRouter {
     pub async fn init_menu_router() -> Router {
+        // 042: 移除既有 per-route OperationLogLayer mount —
+        // apply_layers 統一掛 OperationLogLayer 後此 per-route mount 變冗餘（per quickstart §3.2）。
         let router = Router::new().route(
             "/getConstantRoutes",
-            get(SysMenuApi::get_constant_routes).layer(OperationLogLayer::new(true)),
+            get(SysMenuApi::get_constant_routes),
         );
         Router::new().nest("/route", router)
     }

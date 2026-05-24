@@ -10,6 +10,7 @@ use server_core::sign::{
     api_key_middleware, protect_route, ApiKeySource, ApiKeyValidation, ComplexApiKeyConfig,
     SimpleApiKeyConfig, ValidatorType,
 };
+use server_core::web::operation_log::OperationLogLayer;
 use server_core::web::{RequestId, RequestIdLayer};
 use server_global::global::{clear_routes, get_collected_routes, get_config};
 use server_global::snowflake;
@@ -51,6 +52,13 @@ async fn apply_layers<T: Send + Sync + 'static>(
         Services::None(_) => router,
         Services::Single(service) => router.layer(Extension(service)),
     };
+
+    // 042 audit-outbox-and-http-mount: HTTP middleware audit mount（per FR-003 / research R-3）。
+    // 必須加在 apply_layers 最前（first call → innermost layer），如此在 request 通過外層
+    // TraceLayer/RequestIdLayer/Casbin/ApiKey/JWT enforce 完後、再進 OperationLogLayer：
+    // user_id / domain / request_id 等 fields 已由前面 layer 寫入 extensions、middleware 可直接讀。
+    // 反之若加最後（outermost），會在所有 enforce layer 之前看到 request、extensions 為空。
+    router = router.layer(OperationLogLayer::new(true));
 
     router = router
         .layer(

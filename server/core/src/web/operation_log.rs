@@ -16,8 +16,7 @@ use chrono::Local;
 use futures::{future::BoxFuture, StreamExt};
 use http::{Extensions, HeaderMap, Uri};
 use serde_json::Value;
-use server_constant::definition::consts::SystemEvent;
-use server_global::global::{self, OperationLogContext};
+use server_global::global::{spawn_http_audit_write, OperationLogContext, REQUEST_ID_TASK_LOCAL};
 use tower_layer::Layer;
 use tower_service::Service;
 
@@ -105,7 +104,11 @@ where
                 let params = parse_query_params(&parts.uri);
 
                 let req = Request::from_parts(parts, Body::from(bytes.clone()));
-                let response = inner.call(req).await?;
+                // 042: 把 request_id 設進 tokio task-local，讓 service-level audit_log::write_in_txn
+                // 在序列化時可 fallback 取得（INTERNAL view request_id 串聯 HTTP view）。
+                let response = REQUEST_ID_TASK_LOCAL
+                    .scope(request_id.clone(), inner.call(req))
+                    .await?;
 
                 let (response_parts, response_body) = response.into_parts();
                 let response_bytes = to_bytes(response_body, usize::MAX)
@@ -137,10 +140,10 @@ where
                     created_at: start_time,
                 };
 
-                global::send_dyn_event(
-                    SystemEvent::AuditOperationLoggedEvent.as_ref(),
-                    Box::new(context),
-                );
+                // 042: 改 spawn_http_audit_write — fire-and-forget tokio::spawn
+                // 寫 sys_audit_outbox（透過 model 註冊的 callback、避免 core→model 反向 dep）。
+                // 失敗只 log warn、response 不受影響（per spec FR-007/FR-008）。
+                spawn_http_audit_write(context);
 
                 Ok(Response::from_parts(
                     response_parts,

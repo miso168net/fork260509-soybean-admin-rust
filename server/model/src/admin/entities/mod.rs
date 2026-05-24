@@ -5,6 +5,7 @@ pub mod prelude;
 pub mod casbin_rule;
 pub mod sea_orm_active_enums;
 pub mod sys_access_key;
+pub mod sys_audit_outbox;
 pub mod sys_domain;
 pub mod sys_endpoint;
 pub mod sys_login_log;

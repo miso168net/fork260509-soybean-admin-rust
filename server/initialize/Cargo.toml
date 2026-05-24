@@ -11,6 +11,7 @@ server-config = { path = "../config" }
 server-constant = { path = "../constant" }
 server-global = { path = "../global" }
 server-middleware = { path = "../middleware" }
+server-model = { path = "../model" }
 server-router = { path = "../router" }
 server-service = { path = "../service" }
 axum-casbin = { path = "../../axum-casbin" }
@@ -49,4 +50,3 @@ simple_logger = { workspace = true }
 jsonwebtoken = { workspace = true }
 serde = { workspace = true, features = ["derive"] }  # T012: MockAuthOutput derive + body parse
 serde_json = { workspace = true }                    # T012: parse response body as Value
-server-model = { path = "../model" }                 # T013: SysLoginLog entity for DB assertion

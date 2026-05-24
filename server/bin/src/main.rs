@@ -29,6 +29,10 @@ async fn main() {
     server_initialize::init_primary_mongo().await;
     server_initialize::init_mongo_pools().await;
 
+    // 042 audit-outbox-and-http-mount: spawn drainer 背景 task
+    // 必須在 DB（init_primary_connection）+ Redis（init_primary_redis）都 ready 後
+    server_initialize::initialize_audit_outbox_drainer().await;
+
     // build our application with a route
     let app = server_initialize::initialize_admin_router().await;
     // 全 router compose 最外層 wrap NormalizePathLayer：trim request path 的 trailing slash，

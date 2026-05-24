@@ -4,9 +4,9 @@ pub use config_init::{
 };
 pub use env_config::{load_config_from_env, load_config_with_env, EnvConfigLoader};
 pub use model::{
-    Config, DatabaseConfig, DatabasesInstancesConfig, JwtConfig, MongoConfig, MongoInstancesConfig,
-    OptionalConfigs, RedisConfig, RedisInstancesConfig, RedisMode, S3Config, S3InstancesConfig,
-    ServerConfig,
+    AuditOutboxConfig, Config, DatabaseConfig, DatabasesInstancesConfig, JwtConfig, MongoConfig,
+    MongoInstancesConfig, OptionalConfigs, RedisConfig, RedisInstancesConfig, RedisMode, S3Config,
+    S3InstancesConfig, ServerConfig,
 };
 pub use server_global::{project_error, project_info};
 
