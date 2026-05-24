@@ -173,8 +173,9 @@ impl TAccessKeyService for SysAccessKeyService {
     async fn delete_access_key(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
         let db = db_helper::get_db_connection().await?;
 
-        // 先获取 access key 信息（用於後續從 validator 移除）
-        let access_key = sys_access_key::find_active()
+        // 先确认 access key 存在(soft_delete_by_id 會自己再 fetch before-snapshot、
+        // 但 service 層仍須先檢查避免對不存在 / 已軟刪 row 走後續流程)。
+        let _access_key = sys_access_key::find_active()
             .filter(SysAccessKeyColumn::Id.eq(id))
             .one(db.as_ref())
             .await
@@ -182,16 +183,14 @@ impl TAccessKeyService for SysAccessKeyService {
             .ok_or_else(|| AppError::from(AccessKeyError::AccessKeyNotFound))?;
 
         // soft delete（facade 內部開 txn、同時寫 audit log）。
-        //
-        // NOTE: facade commit 後到 validator remove_key 兩行間若 process 崩潰、validator
-        // 在 in-memory 仍保有該 key 至下次 process 重啟 / initialize_access_keys 再次同步。
-        // 既有 hard-delete 版本同 txn 內呼 remove_key 也只能避免 DB 改了但記憶體沒清的窗口、
-        // 改善需把 validator 改為 DB-as-truth 模式（initialize 期間 reload）— 留 F12+。
         sys_access_key::soft_delete_by_id(db.as_ref(), id.to_string(), actor).await?;
 
-        // 从验证器中移除
-        server_core::sign::remove_key(ValidatorType::Simple, &access_key.access_key_id).await;
-        server_core::sign::remove_key(ValidatorType::Complex, &access_key.access_key_id).await;
+        // 045 F3-N2: DB-as-truth ordering — DB commit 後再 publish invalidate
+        // 訊號到 redis channel api_key:invalidate;subscriber(本副本 + 其他副本)
+        // 收到後 clear in-memory validator + 從 DB reload active row,跨 instance
+        // coherence 在毫秒級內達成。fire-and-forget:redis 失敗只 log、不回傳
+        // error、不阻斷 caller(per FR-007 / FR-004 fail-safe)。
+        server_global::api_key_notify::notify_api_key_changed().await;
 
         Ok(())
     }
