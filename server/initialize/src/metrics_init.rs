@@ -49,12 +49,23 @@ pub fn init() -> Router {
         "backup_completed_total",
         "backup job completions (declared 0 series — W-F15/16 future instrument)"
     );
+    // 045 F3-N2: api_key pub-sub publish + subscriber reload counters
+    describe_counter!(
+        "api_key_invalidate_total",
+        "api_key invalidate broadcast publish count"
+    );
+    describe_counter!(
+        "api_key_reload_total",
+        "api_key in-memory validator reload count"
+    );
     // initialize counters at 0 so prometheus sees the series before traffic
     counter!("audit_log_writes_total").absolute(0);
     counter!("casbin_enforcement_total").absolute(0);
     counter!("casbin_policy_cache_invalidate_total").absolute(0);
     counter!("cleanup_job_rows_deleted_total").absolute(0);
     counter!("backup_completed_total").absolute(0);
+    counter!("api_key_invalidate_total").absolute(0);
+    counter!("api_key_reload_total").absolute(0);
 
     // ---- 2 gauges ----
     describe_gauge!(

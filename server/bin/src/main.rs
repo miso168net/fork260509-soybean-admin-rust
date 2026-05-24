@@ -33,6 +33,11 @@ async fn main() {
     // 必須在 DB（init_primary_connection）+ Redis（init_primary_redis）都 ready 後
     server_initialize::initialize_audit_outbox_drainer().await;
 
+    // 045 F3-N2: api_key pub-sub subscriber（research R-2: subscriber-first ordering、
+    // 須在 initialize_access_key 之前 spawn,以免初始填入完成後立刻被 invalidate 訊號清空,
+    // 但又須在 redis ready 之後 — 此處正好夾在中間）。
+    server_initialize::spawn_api_key_sync_subscriber();
+
     // build our application with a route
     let app = server_initialize::initialize_admin_router().await;
     // 全 router compose 最外層 wrap NormalizePathLayer：trim request path 的 trailing slash，
