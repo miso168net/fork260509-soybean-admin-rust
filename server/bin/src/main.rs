@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 
+use axum::{extract::Request, ServiceExt};
 use tokio::net::TcpListener;
+use tower::Layer;
+use tower_http::normalize_path::NormalizePathLayer;
 
 #[tokio::main]
 async fn main() {
@@ -28,6 +31,11 @@ async fn main() {
 
     // build our application with a route
     let app = server_initialize::initialize_admin_router().await;
+    // 全 router compose 最外層 wrap NormalizePathLayer：trim request path 的 trailing slash，
+    // 使 nested `/`-rooted endpoint（如 /api/user、/api/role）對帶 trailing slash request 一致回 200，
+    // 而非 axum 0.8 nested router 預設 404 行為。layer 在 routing 之前 apply、casbin/audit 看到 normalized
+    // path、與 sys_endpoint 表記錄字面一致（per spec 041 FR-008/009、Clarifications 2026-05-24 Q1）。
+    let app = NormalizePathLayer::trim_trailing_slash().layer(app);
 
     //需要初始化验证器init_validators之后才能初始化访问密钥
     server_initialize::initialize_access_key().await;
@@ -43,9 +51,13 @@ async fn main() {
     // run it
     let listener = TcpListener::bind(&addr).await.unwrap();
     // tracing::debug!("listening on {}", listener.local_addr().unwrap());
+    // 用 axum::ServiceExt 的 into_make_service_with_connect_info（而非 Router 內建版）：
+    // NormalizePathLayer wrap 後型別由 Router 變 NormalizePath<Router>，Router 專屬 method
+    // 不再可用；ServiceExt trait 為任何 Service<Request> 提供同名 helper、保留 ConnectInfo<SocketAddr>
+    // extractor 對 auth handler / audit log 的支援。
     axum::serve(
         listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
+        ServiceExt::<Request>::into_make_service_with_connect_info::<SocketAddr>(app),
     )
     .await
     .unwrap();
