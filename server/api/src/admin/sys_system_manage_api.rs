@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use axum::{extract::{Path, Query}, Extension, Json};
 use axum_casbin::{casbin::MgmtApi, CasbinAxumLayer};
+use sea_orm::TransactionTrait;
 use serde_json::{json, Value};
 use server_core::web::{audit::Actor, auth::User, code, error::AppError, page::PaginatedData, res::Res};
 use server_model::admin::facade::sys_endpoint;
@@ -117,6 +118,8 @@ impl SysSystemManageApi {
 
     /// W-FW1 transform: POST /systemManage/addUser (base-web shape → backend domain shape)
     /// W-FW5: 收 userRoles（角色指派）+ 選填 password。
+    /// 045 US4 (035-N1): create_user + assign_roles_to_user 包進 outer txn，
+    /// 角色指派失敗 → user row INSERT 自動 rollback（消除舊 orphan user 風險）。
     pub async fn add_user_for_systemmanage(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
@@ -137,26 +140,36 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             gender: map_gender(input.user_gender.as_deref())?,
         };
-        let created = service.create_user(create_input, &actor).await?;
-        // W-FW5 T005: user→roles 指派（空清單為合法清空）
-        // 039 cascade: created.id 已改 i64 display_id；先 lookup ULID 才能餵 assign_roles_to_user(user_id: String)。
-        let created_ulid = service.lookup_ulid_by_display_id(created.id).await?;
-        service
-            .assign_roles_to_user(created_ulid, input.user_roles, &actor)
+
+        // 045 US4: 一個 outer txn 包住 create + assign roles；任一步失敗 → 全部 rollback。
+        let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        let created_model = service
+            .create_user_in_txn(&txn, create_input, &actor)
             .await?;
-        Ok(Res::new_data(created))
+        // created_model.id 即新 user 的 ULID（在 outer txn 內可直接取，免再 lookup）。
+        service
+            .assign_roles_to_user_in_txn(&txn, created_model.id.clone(), input.user_roles, &actor)
+            .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(Res::new_data(UserWithoutPassword::from(created_model)))
     }
 
     /// W-FW1 transform: POST /systemManage/updateUser (base-web shape → backend domain shape)
     /// W-FW5: 收 userRoles（角色指派）+ 選填 password。
     /// 039 T030.5: input.id 改 i64；handler 先 lookup_ulid_by_display_id 再餵 update_user(user_ulid, …)
     /// 與 assign_roles_to_user(user_ulid, …)，避免二次 lookup。
+    /// 045 US4 (035-N1): update_user + assign_roles_to_user 包進 outer txn；
+    /// `lookup_ulid_by_display_id` 刻意留在 `db.begin()` 之前 — 404 路徑不浪費 txn。
     pub async fn update_user_for_systemmanage(
         Extension(service): Extension<Arc<SysUserService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageUpdateUserInput>,
     ) -> Result<Res<UserWithoutPassword>, AppError> {
         let actor = Actor::from(&user);
+        // 045 US4: lookup 留在 outer txn 之外 — UserNotFound 4001 路徑直接 early return。
         let user_ulid = service.lookup_ulid_by_display_id(input.id).await?;
         let update_input = UpdateUserInput {
             id: input.id,
@@ -171,12 +184,21 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             gender: map_gender(input.user_gender.as_deref())?,
         };
-        let updated = service.update_user(&user_ulid, update_input, &actor).await?;
+
+        // 045 US4: 一個 outer txn 包住 update + assign roles；任一步失敗 → 全部 rollback。
+        let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        let updated_model = service
+            .update_user_in_txn(&txn, &user_ulid, update_input, &actor)
+            .await?;
         // W-FW5 T005: user→roles 指派（空清單為合法清空）
         service
-            .assign_roles_to_user(user_ulid, input.user_roles, &actor)
+            .assign_roles_to_user_in_txn(&txn, user_ulid, input.user_roles, &actor)
             .await?;
-        Ok(Res::new_data(updated))
+
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(Res::new_data(UserWithoutPassword::from(updated_model)))
     }
 
     /// W-FW2 transform: POST /systemManage/addMenu (base-web shape → backend domain shape)

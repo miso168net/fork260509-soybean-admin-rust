@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use chrono::Local;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, EntityTrait, IntoActiveModel,
-    JoinType, PaginatorTrait, QueryFilter, QuerySelect, RelationTrait, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseTransaction, EntityTrait,
+    IntoActiveModel, JoinType, PaginatorTrait, QueryFilter, QuerySelect, RelationTrait, Set,
+    TransactionTrait,
 };
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
@@ -47,6 +48,17 @@ pub trait TUserService {
         input: CreateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError>;
+    /// 045 US4 (035-N1): caller 提供 outer txn 版本；canonical logic 此處實作，
+    /// `create_user` 為 delegate（自開 txn / commit）。
+    ///
+    /// 注：回傳 raw `sys_user::Model`（非 `UserWithoutPassword`）；caller 可在 outer txn
+    /// 內存取 ULID（`.id`）餵下一步 `assign_roles_to_user_in_txn`（display_id-only 視角不夠）。
+    async fn create_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        input: CreateUserInput,
+        actor: &Actor,
+    ) -> Result<sys_user::Model, AppError>;
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError>;
     /// 039 T030.5: 新增 `user_id: &str` 參數承接 handler 端 lookup_ulid_by_display_id 結果。
     /// `input.id` 為 i64 wire field、service 內部不使用（identity 走 user_id ULID）。
@@ -56,12 +68,34 @@ pub trait TUserService {
         input: UpdateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError>;
+    /// 045 US4 (035-N1): caller 提供 outer txn 版本；canonical logic 此處實作，
+    /// `update_user` 為 delegate（自開 txn / commit）。
+    ///
+    /// 注：回傳 raw `sys_user::Model`（與 `create_user_in_txn` 對稱）；handler 端 update
+    /// 鏈條 ULID 由 `user_id` 參數帶入、不需從回傳值取，但保持 raw 形式以利日後組合。
+    async fn update_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        user_id: &str,
+        input: UpdateUserInput,
+        actor: &Actor,
+    ) -> Result<sys_user::Model, AppError>;
     async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError>;
 
     /// W-FW5 US1: user→roles delta 指派。`role_codes` 為 role code 清單，
     /// 空清單為合法（清空該 user 全部角色）。無效 code → 拒絕。
     async fn assign_roles_to_user(
         &self,
+        user_id: String,
+        role_codes: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError>;
+    /// 045 US4 (035-N1): caller 提供 outer txn 版本；canonical logic 此處實作，
+    /// `assign_roles_to_user` 為 delegate（自開 txn / commit）。所有 DB 讀寫共用 outer txn
+    /// snapshot view（讀亦走 txn、避免 read-after-commit 的不一致）。
+    async fn assign_roles_to_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
         user_id: String,
         role_codes: Vec<String>,
         actor: &Actor,
@@ -165,10 +199,21 @@ impl TUserService for SysUserService {
         input: CreateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError> {
+        // 045 US4 delegate: 自開 txn / commit，內部走 *_in_txn canonical 路徑。
         let db = db_helper::get_db_connection().await?;
         let txn = db.begin().await.map_err(AppError::from)?;
+        let user_model = self.create_user_in_txn(&txn, input, actor).await?;
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(UserWithoutPassword::from(user_model))
+    }
 
-        self.check_username_unique_in_txn(&txn, &input.username)
+    async fn create_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        input: CreateUserInput,
+        actor: &Actor,
+    ) -> Result<sys_user::Model, AppError> {
+        self.check_username_unique_in_txn(txn, &input.username)
             .await?;
 
         let user = SysUserActiveModel {
@@ -189,10 +234,10 @@ impl TUserService for SysUserService {
             ..Default::default()
         };
 
-        let user_model = user.insert(&txn).await.map_err(AppError::from)?;
+        let user_model = user.insert(txn).await.map_err(AppError::from)?;
 
         audit_log::write_in_txn(
-            &txn,
+            txn,
             AuditEvent {
                 actor,
                 operation: AuditOperation::Insert,
@@ -207,8 +252,7 @@ impl TUserService for SysUserService {
         )
         .await?;
 
-        txn.commit().await.map_err(AppError::from)?;
-        Ok(UserWithoutPassword::from(user_model))
+        Ok(user_model)
     }
 
     async fn get_user(&self, id: &str) -> Result<UserWithoutPassword, AppError> {
@@ -228,19 +272,31 @@ impl TUserService for SysUserService {
         input: UpdateUserInput,
         actor: &Actor,
     ) -> Result<UserWithoutPassword, AppError> {
+        // 045 US4 delegate: 自開 txn / commit，內部走 *_in_txn canonical 路徑。
         let db = db_helper::get_db_connection().await?;
         let txn = db.begin().await.map_err(AppError::from)?;
+        let updated_model = self.update_user_in_txn(&txn, user_id, input, actor).await?;
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(UserWithoutPassword::from(updated_model))
+    }
 
+    async fn update_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        user_id: &str,
+        input: UpdateUserInput,
+        actor: &Actor,
+    ) -> Result<sys_user::Model, AppError> {
         // 039 T030.5: identity 走 handler 端 lookup 過的 ULID；input.id（i64 wire field）不採用。
         let before = sys_user::find_active()
             .filter(SysUserColumn::Id.eq(user_id))
-            .one(&txn)
+            .one(txn)
             .await
             .map_err(AppError::from)?
             .ok_or_else(|| AppError::from(UserError::UserNotFound))?;
 
         if input.username != before.username {
-            self.check_username_unique_in_txn(&txn, &input.username)
+            self.check_username_unique_in_txn(txn, &input.username)
                 .await?;
         }
 
@@ -262,10 +318,10 @@ impl TUserService for SysUserService {
         user.status = Set(input.status);
         user.gender = Set(input.gender);
 
-        let updated_user = user.update(&txn).await.map_err(AppError::from)?;
+        let updated_user = user.update(txn).await.map_err(AppError::from)?;
 
         audit_log::write_in_txn(
-            &txn,
+            txn,
             AuditEvent {
                 actor,
                 operation: AuditOperation::Update,
@@ -280,8 +336,7 @@ impl TUserService for SysUserService {
         )
         .await?;
 
-        txn.commit().await.map_err(AppError::from)?;
-        Ok(UserWithoutPassword::from(updated_user))
+        Ok(updated_user)
     }
 
     async fn delete_user(&self, id: &str, actor: &Actor) -> Result<(), AppError> {
@@ -295,17 +350,32 @@ impl TUserService for SysUserService {
         role_codes: Vec<String>,
         actor: &Actor,
     ) -> Result<(), AppError> {
+        // 045 US4 delegate: 自開 txn / commit，內部走 *_in_txn canonical 路徑。
         let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+        self.assign_roles_to_user_in_txn(&txn, user_id, role_codes, actor)
+            .await?;
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(())
+    }
 
+    async fn assign_roles_to_user_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+        user_id: String,
+        role_codes: Vec<String>,
+        actor: &Actor,
+    ) -> Result<(), AppError> {
         // 去重後解析（防 base-web 異常送重複 code 時誤判 InvalidRoleCode）
         let mut unique_codes: Vec<String> = role_codes;
         unique_codes.sort();
         unique_codes.dedup();
 
+        // 045 US4: 所有讀寫共用 outer txn snapshot view（避免 read-after-commit 不一致）。
         // role code → role id 解析（無效 code → 拒絕，spec E-6）
         let roles = sys_role::find_active()
             .filter(SysRoleColumn::Code.is_in(unique_codes.clone()))
-            .all(db.as_ref())
+            .all(txn)
             .await
             .map_err(AppError::from)?;
 
@@ -319,7 +389,7 @@ impl TUserService for SysUserService {
         // 撈該 user 既有 sys_user_role
         let existing = SysUserRole::find()
             .filter(SysUserRoleColumn::UserId.eq(&user_id))
-            .all(db.as_ref())
+            .all(txn)
             .await
             .map_err(AppError::from)?;
 
@@ -337,8 +407,6 @@ impl TUserService for SysUserService {
             .cloned()
             .collect();
 
-        let txn = db.begin().await.map_err(AppError::from)?;
-
         if !new_role_ids.is_empty() {
             let user_roles: Vec<SysUserRoleActiveModel> = new_role_ids
                 .iter()
@@ -349,7 +417,7 @@ impl TUserService for SysUserService {
                 .collect();
 
             SysUserRole::insert_many(user_roles)
-                .exec(&txn)
+                .exec(txn)
                 .await
                 .map_err(AppError::from)?;
         }
@@ -361,14 +429,14 @@ impl TUserService for SysUserService {
                         .eq(&user_id)
                         .and(SysUserRoleColumn::RoleId.is_in(role_ids_to_delete.clone())),
                 )
-                .exec(&txn)
+                .exec(txn)
                 .await
                 .map_err(AppError::from)?;
         }
 
         // Constitution II：新寫入路徑必含 audit。payload before/after 為角色 id 集合（key roleIds）。
         audit_log::write_in_txn(
-            &txn,
+            txn,
             AuditEvent {
                 actor,
                 operation: AuditOperation::Update,
@@ -383,7 +451,6 @@ impl TUserService for SysUserService {
         )
         .await?;
 
-        txn.commit().await.map_err(AppError::from)?;
         Ok(())
     }
 
