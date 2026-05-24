@@ -15,7 +15,6 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use sea_orm::EntityTrait;
 use server_core::sign::{add_key, clear_all_keys, ValidatorType};
 use server_global::{
     global::{RedisConnection, GLOBAL_PRIMARY_REDIS},
@@ -122,7 +121,7 @@ async fn reload_api_keys() {
         Ok(db) => db,
         Err(err) => {
             project_error!(
-                "api_key sync subscriber: 取 DB connection 失敗,沿用舊 in-memory state: {}",
+                "api_key sync subscriber: 取 DB connection 失敗,沿用舊 in-memory state: {:?}",
                 err
             );
             return;
@@ -140,7 +139,7 @@ async fn reload_api_keys() {
         Ok(rows) => rows,
         Err(err) => {
             project_error!(
-                "api_key sync subscriber: SELECT sys_access_key 失敗,in-memory validator 已清空、等待下一則訊號重 try: {}",
+                "api_key sync subscriber: SELECT sys_access_key 失敗,in-memory validator 已清空、等待下一則訊號重 try: {:?}",
                 err
             );
             return;
