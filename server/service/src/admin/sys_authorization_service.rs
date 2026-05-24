@@ -137,7 +137,7 @@ impl SysAuthorizationService {
         let existing_permissions =
             enforcer_write.get_filtered_policy(0, vec![role_code.to_string(), domain.to_string()]);
 
-        println!("existing_permissions: {:?}", existing_permissions);
+        tracing::debug!(?existing_permissions, "assign_permission: existing_permissions");
 
         let new_policies: Vec<Vec<String>> = new_permissions
             .iter()
@@ -151,7 +151,7 @@ impl SysAuthorizationService {
             })
             .collect();
 
-        println!("new_policies: {:?}", new_policies);
+        tracing::debug!(?new_policies, "assign_permission: new_policies");
 
         let existing_policies: Vec<Vec<String>> = existing_permissions
             .iter()
@@ -165,7 +165,7 @@ impl SysAuthorizationService {
             })
             .collect();
 
-        println!("existing_policies: {:?}", existing_policies);
+        tracing::debug!(?existing_policies, "assign_permission: existing_policies");
 
         let policies_to_remove: Vec<Vec<String>> = existing_policies
             .iter()
