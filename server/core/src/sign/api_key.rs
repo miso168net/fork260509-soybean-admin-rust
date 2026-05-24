@@ -107,6 +107,13 @@ impl SimpleApiKeyValidator {
     pub fn remove_key(&self, key: &str) {
         self.keys.write().remove(key);
     }
+
+    /// 清空所有 API key（045 F3-N2：redis pub-sub 收到 invalidate 訊號後
+    /// 由 subscriber full reload 前的 clear 步驟）。
+    #[inline]
+    pub fn clear(&self) {
+        self.keys.write().clear();
+    }
 }
 
 impl Default for SimpleApiKeyValidator {
@@ -297,6 +304,13 @@ impl ComplexApiKeyValidator {
     #[inline]
     pub fn remove_key(&self, key: &str) {
         self.secrets.write().remove(key);
+    }
+
+    /// 清空所有 API key / secret（045 F3-N2：redis pub-sub 收到 invalidate 訊號後
+    /// 由 subscriber full reload 前的 clear 步驟）。
+    #[inline]
+    pub fn clear(&self) {
+        self.secrets.write().clear();
     }
 
     /// Updates the API key validation configuration.

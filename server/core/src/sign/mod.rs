@@ -70,6 +70,16 @@ pub async fn remove_key(validator_type: ValidatorType, key: &str) {
     }
 }
 
+/// 清空 Simple + Complex 兩個 in-memory validator（045 F3-N2）。
+///
+/// pub-sub subscriber 收到 `api_key:invalidate` 訊號後呼叫；之後 subscriber 會
+/// 再從 DB SELECT 一遍 active row 重新填入。clear + reload 兩步合起來等於
+/// full sync, idempotent。
+pub async fn clear_all_keys() {
+    API_KEY_VALIDATORS.0.write().await.clear();
+    API_KEY_VALIDATORS.1.write().await.clear();
+}
+
 pub async fn init_validators(config: Option<ApiKeyConfig>) {
     // 使用默认的内存 nonce 存储
     init_validators_with_nonce_store(config, create_memory_nonce_store_factory()).await;
