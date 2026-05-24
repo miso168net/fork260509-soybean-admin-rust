@@ -19,6 +19,7 @@ use server_global::{
     CASBIN_INVALIDATE_CHANNEL,
 };
 use tokio::sync::RwLock;
+use tracing::Instrument;
 
 use crate::{project_error, project_info};
 
@@ -31,14 +32,17 @@ const RECONNECT_BACKOFF: Duration = Duration::from_secs(5);
 /// `enforcer` 是與 axum casbin layer 共用的同一個 `Arc<RwLock<CachedEnforcer>>`
 /// clone(per research R-Q1 — 不新增全域)。
 pub fn spawn_casbin_sync_subscriber(enforcer: Arc<RwLock<CachedEnforcer>>) {
-    tokio::spawn(async move {
-        project_info!("Casbin sync subscriber task spawned");
-        loop {
-            run_subscription(&enforcer).await;
-            // run_subscription 只在 redis 未就緒 / 連線失敗 / 訂閱中斷時返回。
-            tokio::time::sleep(RECONNECT_BACKOFF).await;
+    tokio::spawn(
+        async move {
+            project_info!("Casbin sync subscriber task spawned");
+            loop {
+                run_subscription(&enforcer).await;
+                // run_subscription 只在 redis 未就緒 / 連線失敗 / 訂閱中斷時返回。
+                tokio::time::sleep(RECONNECT_BACKOFF).await;
+            }
         }
-    });
+        .instrument(tracing::Span::current()),
+    );
 }
 
 /// 跑一輪訂閱:取 redis client → 開專用 pub-sub 連線 → subscribe → 消費訊息。

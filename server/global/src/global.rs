@@ -16,6 +16,7 @@ use redis::{cluster::ClusterClient, Client};
 use sea_orm::DatabaseConnection;
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex, OnceCell, RwLock};
+use tracing::Instrument;
 
 use crate::project_info;
 
@@ -160,7 +161,7 @@ pub async fn register_event_listeners(
     channels.string_tx = string_tx;
 
     // 启动字符串事件监听器
-    tokio::spawn(string_listener(string_rx));
+    tokio::spawn(string_listener(string_rx).instrument(tracing::Span::current()));
     project_info!("String event listener spawned");
 
     // 清空旧的发送器
@@ -173,7 +174,7 @@ pub async fn register_event_listeners(
             name: name.clone(),
             tx,
         });
-        tokio::spawn(listener(rx));
+        tokio::spawn(listener(rx).instrument(tracing::Span::current()));
         project_info!("Dynamic event listener '{}' spawned", name);
     }
 }
@@ -262,20 +263,26 @@ impl OperationLogContext {
 /// 异步发送字符串事件
 #[inline]
 pub fn send_string_event(msg: String) {
-    tokio::spawn(async move {
-        let sender = get_string_sender().await;
-        let _ = sender.send(msg);
-    });
+    tokio::spawn(
+        async move {
+            let sender = get_string_sender().await;
+            let _ = sender.send(msg);
+        }
+        .instrument(tracing::Span::current()),
+    );
 }
 
 /// 异步发送动态类型事件
 #[inline]
 pub fn send_dyn_event(event_name: &'static str, event: Box<dyn Any + Send>) {
-    tokio::spawn(async move {
-        if let Some(sender) = get_dyn_sender(event_name).await {
-            let _ = sender.send(event);
+    tokio::spawn(
+        async move {
+            if let Some(sender) = get_dyn_sender(event_name).await {
+                let _ = sender.send(event);
+            }
         }
-    });
+        .instrument(tracing::Span::current()),
+    );
 }
 
 //*****************************************************************************
@@ -326,26 +333,32 @@ pub async fn register_http_audit_writer(writer: HttpAuditWriter) {
 
 /// 042: middleware 用 — fire-and-forget spawn writer 寫 outbox；無 writer 註冊則 warn。
 /// 失敗只 log warn、不返 error、不影響 response（per spec FR-008）。
+///
+/// 044 W-F12 FR-004：用 `.instrument(tracing::Span::current())` 把當前 `http_req`
+/// span（含 `request_id` attr）傳遞給 spawn 出去的 task,讓 warn! log 能繼承 request_id。
 #[inline]
 pub fn spawn_http_audit_write(ctx: OperationLogContext) {
-    tokio::spawn(async move {
-        let guard = HTTP_AUDIT_WRITER.read().await;
-        match guard.as_ref() {
-            Some(writer) => {
-                if let Err(e) = writer(ctx).await {
+    tokio::spawn(
+        async move {
+            let guard = HTTP_AUDIT_WRITER.read().await;
+            match guard.as_ref() {
+                Some(writer) => {
+                    if let Err(e) = writer(ctx).await {
+                        tracing::warn!(
+                            target: "operation_log_middleware",
+                            error = %e,
+                            "HTTP audit outbox write failed (response unaffected)"
+                        );
+                    }
+                }
+                None => {
                     tracing::warn!(
                         target: "operation_log_middleware",
-                        error = %e,
-                        "HTTP audit outbox write failed (response unaffected)"
+                        "HTTP_AUDIT_WRITER 未註冊、middleware audit 寫入跳過"
                     );
                 }
             }
-            None => {
-                tracing::warn!(
-                    target: "operation_log_middleware",
-                    "HTTP_AUDIT_WRITER 未註冊、middleware audit 寫入跳過"
-                );
-            }
         }
-    });
+        .instrument(tracing::Span::current()),
+    );
 }

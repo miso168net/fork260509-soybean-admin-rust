@@ -10,6 +10,7 @@ use server_config::{AuditOutboxConfig, Config};
 use server_global::global::{get_config, register_http_audit_writer};
 use server_model::admin::audit_log;
 use server_service::admin::run_drainer_loop;
+use tracing::Instrument;
 
 /// 啟動 audit_outbox drainer 背景迴圈（tokio::spawn detached task）+ 註冊 HTTP audit writer callback。
 ///
@@ -50,7 +51,10 @@ pub async fn initialize_audit_outbox_drainer() {
         config
     );
 
-    tokio::spawn(async move {
-        run_drainer_loop(config).await;
-    });
+    tokio::spawn(
+        async move {
+            run_drainer_loop(config).await;
+        }
+        .instrument(tracing::Span::current()),
+    );
 }

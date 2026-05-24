@@ -60,6 +60,9 @@ async fn apply_layers<T: Send + Sync + 'static>(
     // 反之若加最後（outermost），會在所有 enforce layer 之前看到 request、extensions 為空。
     router = router.layer(OperationLogLayer::new(true));
 
+    // 044 W-F12 (DESIGN-W §8.1): span attrs renamed to align with structured-log schema —
+    // span name = "http_req"; fields = service / request_id / method / route.
+    // request_id flows into JSON output under row["span"]["request_id"] (see log_tracing_init.rs).
     router = router
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<Body>| {
@@ -69,10 +72,11 @@ async fn apply_layers<T: Send + Sync + 'static>(
                     .map(ToString::to_string)
                     .unwrap_or_else(|| "unknown".into());
                 info_span!(
-                    "[soybean-admin-rust] >>>>>> request",
-                    id = %request_id,
+                    "http_req",
+                    service = "rust-api",
+                    request_id = %request_id,
                     method = %request.method(),
-                    uri = %request.uri(),
+                    route = %request.uri().path(),
                 )
             }),
         )
@@ -386,6 +390,11 @@ pub async fn initialize_admin_router() -> Router {
     // W-F1 T020: public /health route — bypasses jwt/casbin/api-key middleware
     // and apply_layers TraceLayer (silent log per FR-015).
     app = app.merge(Router::new().route("/health", get(|| async { "ok" })));
+
+    // 044 W-F13 (T007): /metrics endpoint for prometheus scrape
+    // (unauthenticated, internal-only via docker network). Merged at top level so
+    // it bypasses JWT + casbin + api-key + apply_layers TraceLayer — same as /health.
+    app = app.merge(crate::metrics_init::init());
 
     app = app.fallback(handler_404);
 
