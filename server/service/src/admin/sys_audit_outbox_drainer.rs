@@ -111,6 +111,10 @@ async fn drainer_one_batch(config: &AuditOutboxConfig) -> Result<usize, AppError
     // `WHERE published_at IS NULL` 條件保證不會雙寫 sys_operation_log。
     fetch_txn.commit().await.map_err(AppError::from)?;
 
+    // 044 W-F13: pending events gauge — per-batch sample（非絕對 backlog；
+    // 若 backlog > batch_size、gauge 會讀到 batch_size 直到 backlog drain）
+    metrics::gauge!("outbox_pending_events").set(pending.len() as f64);
+
     if pending.is_empty() {
         return Ok(0);
     }

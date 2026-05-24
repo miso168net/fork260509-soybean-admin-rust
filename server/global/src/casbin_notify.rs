@@ -60,12 +60,17 @@ pub async fn notify_casbin_changed() {
         .query_async(&mut conn)
         .await;
 
-    if let Err(err) = result {
-        tracing::warn!(
-            target: "[soybean-admin-rust]",
-            "notify_casbin_changed: PUBLISH 到 channel '{}' 失敗: {}",
-            CASBIN_INVALIDATE_CHANNEL,
-            err
-        );
+    match result {
+        Ok(_) => {
+            metrics::counter!("casbin_policy_cache_invalidate_total").increment(1);
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "[soybean-admin-rust]",
+                "notify_casbin_changed: PUBLISH 到 channel '{}' 失敗: {}",
+                CASBIN_INVALIDATE_CHANNEL,
+                err
+            );
+        }
     }
 }

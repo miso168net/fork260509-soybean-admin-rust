@@ -149,6 +149,16 @@ where
 
                     drop(lock);
 
+                    let result_label: &'static str = if enforcement_error {
+                        "error"
+                    } else if authorized {
+                        "allow"
+                    } else {
+                        "deny"
+                    };
+                    metrics::counter!("casbin_enforcement_total", "result" => result_label)
+                        .increment(1);
+
                     if enforcement_error {
                         Ok(Response::builder()
                                 .status(StatusCode::BAD_GATEWAY)
@@ -182,6 +192,16 @@ where
                     }
 
                     drop(lock);
+
+                    let result_label: &'static str = if enforcement_error {
+                        "error"
+                    } else if authorized {
+                        "allow"
+                    } else {
+                        "deny"
+                    };
+                    metrics::counter!("casbin_enforcement_total", "result" => result_label)
+                        .increment(1);
 
                     if enforcement_error {
                         Ok(Response::builder()

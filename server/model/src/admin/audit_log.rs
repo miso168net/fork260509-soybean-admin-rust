@@ -99,6 +99,12 @@ pub async fn write_in_txn(
         err.message = format!("audit log insert failed: {}", err.message);
         err
     })?;
+    metrics::counter!(
+        "audit_log_writes_total",
+        "operation" => event.operation.as_str(),
+        "entity_type" => event.entity_type
+    )
+    .increment(1);
     Ok(())
 }
 
@@ -183,93 +189,39 @@ pub async fn write_outbox_for_http(ctx: OperationLogContext) -> Result<(), AppEr
         err
     })?;
     txn.commit().await.map_err(AppError::from)?;
+    metrics::counter!(
+        "audit_log_writes_total",
+        "operation" => operation.as_str(),
+        "entity_type" => entity_type
+    )
+    .increment(1);
     Ok(())
 }
 
-/// best-effort entity_id 抽取：取 URL path 第 2 段（split('/').nth(2)）。
-///
+/// best-effort entity_id 抽取（044 W-F12 / FR-011 / US4-042-N2 hybrid rule）。
 /// 注意：rust-api 收到的 URL 已被 front-nginx `proxy_pass http://rust_api/`
-/// 剝離 `/api/` 前綴。實際 path 為 `/user/123` 而非 `/api/user/123`。
+/// 剝離 `/api/` 前綴。實際 path 為 `/user/123` 或 `/systemManage/deleteMenu/123`。
 ///
-/// 例：`/user/123?x=1` → `["", "user", "123"]`.nth(2) = `"123"`。
-/// 無 path segment 時返空字串（drainer / sys_operation_log.entity_id 容許 NULL/空）。
+/// 規則：
+/// - `/systemManage/<verb>/<id>` → 取 segment 3 = `<id>`（不取 `<verb>`）
+/// - 其他 path → 取 segment 2（既有行為、不退化）
 fn extract_entity_id_from_url(url: &str) -> String {
-    url.split('?')
-        .next()
-        .unwrap_or(url)
-        .split('/')
-        .nth(2)
-        .unwrap_or("")
-        .to_string()
+    let path = url.split('?').next().unwrap_or(url);
+    let parts: Vec<&str> = path.split('/').collect();
+    // parts: ["", "systemManage", "<verb>", "<id>"] OR ["", "<resource>", "<id>"]
+    if parts.get(1) == Some(&"systemManage") {
+        parts.get(3).copied().unwrap_or("").to_string()
+    } else {
+        parts.get(2).copied().unwrap_or("").to_string()
+    }
 }
 
 // =============================================================================
 // T007 — pure fn url_to_entity_type（Hybrid rule per FR-004 + data-model §E2）
 // =============================================================================
+//
+// 044 W-F12 / US5 (042-N6): 實作已搬移到 `server-core::web::url_entity_type`，
+// 讓 HTTP middleware (server-core::web::operation_log) 也能用而不會 dep cycle。
+// 此處 `pub use` 保留既有 callsite 路徑、030+ tests & callers 0 改動。
 
-/// Hybrid rule URL → entity_type (per spec 003 Clarifications Q2 + 042 FR-004)。
-///
-/// 順序：systemManage alias 先（避免 prefix 衝突）、native admin router 後、
-/// fallback `http_event` 最後（per data-model.md §E2、unit-tested in
-/// `server/model/tests/url_entity_type.rs`）。
-///
-/// 注意：rust-api 收到的 URL 已被 front-nginx `proxy_pass http://rust_api/`
-/// 剝離 `/api/` 前綴。本表 match 對應 `/role`、`/auth/login` 等
-/// （非 `/api/role`、`/api/auth/login`）。
-pub fn url_to_entity_type(url: &str) -> &'static str {
-    // remove query string
-    let path = url.split('?').next().unwrap_or(url);
-
-    // systemManage alias — sys_user
-    if path.starts_with("/systemManage/addUser") || path.starts_with("/systemManage/updateUser") {
-        return "sys_user";
-    }
-    // systemManage alias — sys_menu
-    if path.starts_with("/systemManage/addMenu")
-        || path.starts_with("/systemManage/updateMenu")
-        || path.starts_with("/systemManage/deleteMenu")
-        || path.starts_with("/systemManage/batchDeleteMenu")
-    {
-        return "sys_menu";
-    }
-    // systemManage alias — sys_role
-    if path.starts_with("/systemManage/addRole")
-        || path.starts_with("/systemManage/updateRole")
-        || path.starts_with("/systemManage/deleteRole")
-        || path.starts_with("/systemManage/batchDeleteRole")
-        || path.starts_with("/systemManage/assignRoleMenus")
-        || path.starts_with("/systemManage/updateRoleHome")
-        || path.starts_with("/systemManage/assignRoleEndpoints")
-    {
-        return "sys_role";
-    }
-
-    // native admin router（per 041：menu 實 mount 在 /route）
-    if path.starts_with("/user") {
-        return "sys_user";
-    }
-    if path.starts_with("/role") {
-        return "sys_role";
-    }
-    if path.starts_with("/route") {
-        return "sys_menu";
-    }
-    if path.starts_with("/domain") {
-        return "sys_domain";
-    }
-    if path.starts_with("/organization") {
-        return "sys_organization";
-    }
-    if path.starts_with("/api-endpoint") {
-        return "sys_endpoint";
-    }
-    if path.starts_with("/access-key") {
-        return "sys_access_key";
-    }
-    if path.starts_with("/authorization") {
-        return "sys_role";
-    }
-
-    // fallback / unknown / /auth/*
-    "http_event"
-}
+pub use server_core::web::url_to_entity_type;

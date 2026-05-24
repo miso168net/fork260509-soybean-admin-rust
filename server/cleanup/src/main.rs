@@ -146,6 +146,13 @@ async fn sweep_sys_user(
             }
         }
     }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
+    }
     SweepResult { ok, failed }
 }
 
@@ -219,6 +226,13 @@ async fn sweep_sys_role(
                 }
             }
         }
+    }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
     }
     SweepResult { ok, failed }
 }
@@ -294,6 +308,13 @@ async fn sweep_sys_menu(
             }
         }
     }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
+    }
     SweepResult { ok, failed }
 }
 
@@ -367,6 +388,13 @@ async fn sweep_sys_domain(
                 }
             }
         }
+    }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
     }
     SweepResult { ok, failed }
 }
@@ -442,6 +470,13 @@ async fn sweep_sys_organization(
             }
         }
     }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
+    }
     SweepResult { ok, failed }
 }
 
@@ -516,6 +551,13 @@ async fn sweep_sys_endpoint(
             }
         }
     }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
+    }
     SweepResult { ok, failed }
 }
 
@@ -589,6 +631,13 @@ async fn sweep_sys_access_key(
                 }
             }
         }
+    }
+    if execute && ok > 0 {
+        metrics::counter!(
+            "cleanup_job_rows_deleted_total",
+            "table_name" => table
+        )
+        .increment(ok as u64);
     }
     SweepResult { ok, failed }
 }
