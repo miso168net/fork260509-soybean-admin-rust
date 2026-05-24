@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
 use async_trait::async_trait;
-use sea_orm::{ColumnTrait, Condition, DatabaseConnection, PaginatorTrait, QueryFilter};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, PaginatorTrait, QueryFilter, TransactionTrait,
+};
 use server_core::web::{audit::Actor, error::AppError, page::PaginatedData};
 use server_model::admin::{
     facade::sys_endpoint::{
@@ -120,11 +122,14 @@ impl TEndpointService for SysEndpointService {
             .map_err(AppError::from)?;
 
         // 045 F3-N1: per-entity upsert + audit 邏輯下放 facade `upsert_with_audit`、
-        // 每筆 endpoint 各自開 row-level txn、保留 N-row 1-row-per-audit 粒度。
+        // 但 sync_endpoints 全 endpoint upsert 共享單一 outer txn、partial 失敗整體 rollback。
+        // facade 內部 `db.begin()` 在 `&DatabaseTransaction` 上會開 SAVEPOINT（canonical sea-orm 模式）、
         // service 層僅負責 orchestration（loop + 對齊既有 vs 新 endpoint 集合）。
+        let txn = db.begin().await.map_err(AppError::from)?;
         for endpoint in new_endpoints.iter() {
-            sys_endpoint::upsert_with_audit(db.as_ref(), endpoint.clone(), &actor).await?;
+            sys_endpoint::upsert_with_audit(&txn, endpoint.clone(), &actor).await?;
         }
+        txn.commit().await.map_err(AppError::from)?;
 
         // 只有在数据库中已经存在端点的情况下才执行删除操作
         if !existing_endpoints.is_empty() {
