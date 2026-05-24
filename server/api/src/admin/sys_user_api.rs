@@ -37,7 +37,7 @@ impl SysUserApi {
         Extension(service): Extension<Arc<SysUserService>>,
         user: User,
     ) -> Result<Res<PaginatedData<UserDetail>>, AppError> {
-        print!("user is {:#?}", user);
+        tracing::debug!(?user, "get_paginated_users: caller user info");
         service
             .find_paginated_users(params)
             .await

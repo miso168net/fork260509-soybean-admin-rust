@@ -20,7 +20,7 @@ use server_global::global::{spawn_http_audit_write, OperationLogContext, REQUEST
 use tower_layer::Layer;
 use tower_service::Service;
 
-use super::{auth::User, RequestId};
+use super::{auth::User, url_to_entity_type, RequestId};
 
 const USER_AGENT_HEADER: &str = "user-agent";
 const UNKNOWN_REQUEST_ID: &str = "unknown";
@@ -118,12 +118,44 @@ where
                 let end_time = Local::now().naive_local();
                 let duration = (end_time - start_time).num_milliseconds() as i32;
 
+                // 044 W-F13: HTTP request duration histogram（seconds、per prom convention）。
+                // 注意：route 為實際 URI path（含 ID）— 高 cardinality 風險、留 follow-up route 模板化。
+                let duration_seconds = (duration as f64) / 1000.0;
+                let response_status = response_parts.status.as_u16().to_string();
+                metrics::histogram!(
+                    "http_request_duration_seconds",
+                    "service" => "rust-api",
+                    "method" => method.clone(),
+                    "route" => uri.clone(),
+                    "status" => response_status.clone()
+                )
+                .record(duration_seconds);
+
+                // 044 W-F12 (FR-002/003): emit one structured JSON log row per HTTP request
+                // with `request_id` at top-level field. tower-http TraceLayer's http_req span
+                // does not propagate through this middleware's Box::pin async boundary, so this
+                // explicit event is the canonical request_id-bearing log row Loki ingests.
+                tracing::info!(
+                    target: "http_request",
+                    service = "rust-api",
+                    request_id = %request_id,
+                    method = %method,
+                    route = %uri,
+                    status = %response_status,
+                    latency_ms = duration,
+                    "http_request"
+                );
+
+                // 044 US5 (042-N6): module_name / description 從 URL+method 推導（取代既往 "TODO"）。
+                // entity_type 走 hybrid rule（per server-core::web::url_entity_type、與 audit pipeline 對齊）。
+                let entity_type = url_to_entity_type(&uri);
+                let description = format!("HTTP {} {}", method, uri);
                 let context = OperationLogContext {
                     user_id,
                     username,
                     domain,
-                    module_name: "TODO".to_string(),
-                    description: "TODO".to_string(),
+                    module_name: entity_type.to_string(),
+                    description,
                     request_id,
                     method,
                     url: uri,
