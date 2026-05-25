@@ -5,7 +5,6 @@ use axum::{
     http::HeaderMap,
     Extension, Json,
 };
-use axum_casbin::CasbinAxumLayer;
 use axum_extra::{headers::UserAgent, TypedHeader};
 use serde_json::json;
 use server_core::web::{
@@ -136,10 +135,8 @@ impl SysAuthenticationApi {
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         Extension(role_svc): Extension<Arc<SysRoleService>>,
         Extension(endpoint_svc): Extension<Arc<SysEndpointService>>,
-        Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
         ValidatedForm(input): ValidatedForm<AssignPermissionDto>,
     ) -> Result<Res<()>, AppError> {
-        let enforcer = cache_enforcer.get_enforcer();
         let actor = Actor::from(&user);
 
         let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
@@ -149,7 +146,7 @@ impl SysAuthenticationApi {
         }
 
         service
-            .assign_permission(input.domain, role_ulid, permission_ulids, enforcer, &actor)
+            .assign_permission(input.domain, role_ulid, permission_ulids, &actor)
             .await?;
 
         Ok(Res::new_data(()))

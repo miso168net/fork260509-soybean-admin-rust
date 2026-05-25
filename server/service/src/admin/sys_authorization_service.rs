@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use axum_casbin::casbin::{CoreApi, MgmtApi, RbacApi};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
 use server_core::web::{
     audit::{Actor, AuditEvent, AuditOperation, AuditSource},
     error::AppError,
@@ -11,7 +8,8 @@ use server_global::notify_casbin_changed;
 use server_model::admin::{
     audit_log,
     entities::{
-        prelude::{SysRoleMenu, SysUserRole},
+        casbin_rule::{ActiveModel as CasbinRuleActiveModel, Column as CasbinRuleColumn},
+        prelude::{CasbinRule, SysRoleMenu, SysUserRole},
         sys_role_menu::{ActiveModel as SysRoleMenuActiveModel, Column as SysRoleMenuColumn},
         sys_user_role::{ActiveModel as SysUserRoleActiveModel, Column as SysUserRoleColumn},
     },
@@ -24,7 +22,6 @@ use server_model::admin::{
     },
 };
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 use crate::helper::db_helper;
 
@@ -59,7 +56,6 @@ pub trait TAuthorizationService: Send + Sync {
         domain: String,
         role_id: String,
         permissions: Vec<String>,
-        enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
         actor: &Actor,
     ) -> Result<(), AppError>;
 
@@ -125,84 +121,6 @@ impl SysAuthorizationService {
         Ok(role.code)
     }
 
-    /// 同步角色权限
-    async fn sync_role_permissions(
-        &self,
-        role_code: &str,
-        domain: &str,
-        new_permissions: Vec<server_model::admin::facade::sys_endpoint::Model>,
-        enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
-    ) -> Result<(), AppError> {
-        let mut enforcer_write = enforcer.write().await;
-        let existing_permissions =
-            enforcer_write.get_filtered_policy(0, vec![role_code.to_string(), domain.to_string()]);
-
-        tracing::debug!(?existing_permissions, "assign_permission: existing_permissions");
-
-        let new_policies: Vec<Vec<String>> = new_permissions
-            .iter()
-            .map(|perm| {
-                vec![
-                    role_code.to_string(),
-                    domain.to_string(),
-                    perm.path.clone(),
-                    perm.method.clone(),
-                ]
-            })
-            .collect();
-
-        tracing::debug!(?new_policies, "assign_permission: new_policies");
-
-        let existing_policies: Vec<Vec<String>> = existing_permissions
-            .iter()
-            .map(|perm| {
-                vec![
-                    perm[0].clone(),
-                    perm[1].clone(),
-                    perm[2].clone(),
-                    perm[3].clone(),
-                ]
-            })
-            .collect();
-
-        tracing::debug!(?existing_policies, "assign_permission: existing_policies");
-
-        let policies_to_remove: Vec<Vec<String>> = existing_policies
-            .iter()
-            .filter(|policy| !new_policies.contains(policy))
-            .cloned()
-            .collect();
-
-        let policies_to_add: Vec<Vec<String>> = new_policies
-            .iter()
-            .filter(|policy| !existing_policies.contains(policy))
-            .cloned()
-            .collect();
-
-        if !policies_to_remove.is_empty() {
-            let _ = enforcer_write
-                .remove_policies(policies_to_remove)
-                .await
-                .map_err(|e| AppError {
-                    code: 500,
-                    message: e.to_string(),
-                })?;
-        }
-
-        if !policies_to_add.is_empty() {
-            let _ = enforcer_write
-                .add_policies(policies_to_add)
-                .await
-                .map_err(|e| AppError {
-                    code: 500,
-                    message: e.to_string(),
-                })?;
-        }
-
-        notify_casbin_changed().await;
-
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -212,20 +130,18 @@ impl TAuthorizationService for SysAuthorizationService {
         domain: String,
         role_id: String,
         permissions: Vec<String>,
-        enforcer: Arc<RwLock<impl CoreApi + MgmtApi + RbacApi + Send + Sync>>,
         actor: &Actor,
     ) -> Result<(), AppError> {
         use std::collections::HashMap;
 
+        // ① 既有 validate logic (UNCHANGED)
         let (domain_code, _, role_code) = self.check_domain_and_role(&domain, &role_id).await?;
-
         let db = db_helper::get_db_connection().await?;
 
         // Filter input permissions to active endpoints. Empty input (spec E-4 clear-all)
-        // OR all-invalid filtered out → both result in empty Vec which sync_role_permissions
-        // handles correctly (removes all existing rows).
-        // Only reject if caller supplied non-empty list but ALL ids were bogus / soft-deleted
-        // (mirrors `assign_routes` body line 253: `if !route_ids.is_empty() && routes.is_empty()`).
+        // OR all-invalid filtered out → both result in empty Vec which we handle correctly
+        // (removes all existing rows). Only reject if caller supplied non-empty list but ALL
+        // ids were bogus / soft-deleted (mirrors `assign_routes` early-return pattern).
         let raw_input = permissions;
         let valid_permissions = sys_endpoint::find_active()
             .filter(SysEndpointColumn::Id.is_in(raw_input.clone()))
@@ -237,46 +153,94 @@ impl TAuthorizationService for SysAuthorizationService {
             return Err(AuthorizationError::PermissionsNotFound.into());
         }
 
-        // ---- W-FW8 US2 audit: snapshot existing endpoint_ids BEFORE sync ----
-        // Reverse-map existing Casbin policies → endpoint ids via in-memory HashMap (R-Q3 体例).
-        let existing_policies = {
-            let enforcer_read = enforcer.read().await;
-            enforcer_read.get_filtered_policy(0, vec![role_code.clone(), domain_code.clone()])
-        };
+        // ② path/method → endpoint_id 反映表 (txn 外建)
         let all_active_endpoints = sys_endpoint::find_active()
             .all(db.as_ref())
             .await
             .map_err(AppError::from)?;
-        let mut path_method_to_id: HashMap<(String, String), String> = HashMap::new();
-        for ep in &all_active_endpoints {
-            path_method_to_id.insert((ep.path.clone(), ep.method.clone()), ep.id.clone());
-        }
-        let mut existing_endpoint_ids: Vec<String> = existing_policies
-            .into_iter()
-            .filter_map(|p| {
-                let v2 = p.get(2)?.clone();
-                let v3 = p.get(3)?.clone();
+        let path_method_to_id: HashMap<(String, String), String> = all_active_endpoints
+            .iter()
+            .map(|ep| ((ep.path.clone(), ep.method.clone()), ep.id.clone()))
+            .collect();
+
+        // ③ 開 txn — single all-or-nothing scope
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        // ④ txn 內 SELECT 現有 ptype='p' policies for (role_code, domain_code)
+        let existing_rows = CasbinRule::find()
+            .filter(CasbinRuleColumn::Ptype.eq("p"))
+            .filter(CasbinRuleColumn::V0.eq(&role_code))
+            .filter(CasbinRuleColumn::V1.eq(&domain_code))
+            .all(&txn)
+            .await
+            .map_err(AppError::from)?;
+
+        let mut existing_endpoint_ids: Vec<String> = existing_rows
+            .iter()
+            .filter_map(|r| {
+                let v2 = r.v2.clone()?;
+                let v3 = r.v3.clone()?;
                 path_method_to_id.get(&(v2, v3)).cloned()
             })
             .collect();
         existing_endpoint_ids.sort();
         existing_endpoint_ids.dedup();
 
-        // payload_after: actually-written endpoint ids (after soft-delete + bogus filter).
+        // ⑤ 算 diff
         let mut new_endpoint_ids: Vec<String> =
             valid_permissions.iter().map(|p| p.id.clone()).collect();
         new_endpoint_ids.sort();
         new_endpoint_ids.dedup();
-        // ---- end snapshot ----
 
-        self.sync_role_permissions(&role_code, &domain_code, valid_permissions, enforcer)
-            .await?;
+        let new_path_method: Vec<(String, String)> = valid_permissions
+            .iter()
+            .map(|p| (p.path.clone(), p.method.clone()))
+            .collect();
+        let existing_path_method: Vec<(String, String)> = existing_rows
+            .iter()
+            .filter_map(|r| Some((r.v2.clone()?, r.v3.clone()?)))
+            .collect();
 
-        // ---- W-FW8 US2 audit: write in caller-opened txn AFTER sync succeeds ----
-        // sync_role_permissions writes via Casbin enforcer API (not Sea-ORM txn).
-        // We open a small db txn only for the audit insert; rollback only affects audit row.
-        // If audit insert fails after Casbin write succeeded, caller sees error; rare DB-error path.
-        let txn = db.begin().await.map_err(AppError::from)?;
+        let rows_to_add: Vec<CasbinRuleActiveModel> = new_path_method
+            .iter()
+            .filter(|pm| !existing_path_method.contains(pm))
+            .map(|(path, method)| CasbinRuleActiveModel {
+                ptype: Set("p".to_string()),
+                v0: Set(Some(role_code.clone())),
+                v1: Set(Some(domain_code.clone())),
+                v2: Set(Some(path.clone())),
+                v3: Set(Some(method.clone())),
+                v4: Set(None),
+                v5: Set(None),
+                ..Default::default()
+            })
+            .collect();
+
+        let ids_to_delete: Vec<i64> = existing_rows
+            .iter()
+            .filter(|r| match (r.v2.clone(), r.v3.clone()) {
+                (Some(v2), Some(v3)) => !new_path_method.contains(&(v2, v3)),
+                _ => false,
+            })
+            .map(|r| r.id)
+            .collect();
+
+        // ⑥ 寫 casbin_rule (txn 內)
+        if !rows_to_add.is_empty() {
+            CasbinRule::insert_many(rows_to_add)
+                .exec(&txn)
+                .await
+                .map_err(AppError::from)?;
+        }
+        if !ids_to_delete.is_empty() {
+            CasbinRule::delete_many()
+                .filter(CasbinRuleColumn::Id.is_in(ids_to_delete))
+                .exec(&txn)
+                .await
+                .map_err(AppError::from)?;
+        }
+
+        // ⑦ audit 同 txn (payload shape 與 W-FW8 體例完全一致)
         audit_log::write_in_txn(
             &txn,
             AuditEvent {
@@ -300,7 +264,12 @@ impl TAuthorizationService for SysAuthorizationService {
             },
         )
         .await?;
+
+        // ⑧ single commit point
         txn.commit().await.map_err(AppError::from)?;
+
+        // ⑨ notify all replicas (既有 W-F11 pattern, fire-and-log)
+        notify_casbin_changed().await;
 
         Ok(())
     }

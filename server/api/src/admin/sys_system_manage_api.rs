@@ -537,12 +537,10 @@ impl SysSystemManageApi {
         Extension(service): Extension<Arc<SysAuthorizationService>>,
         Extension(role_svc): Extension<Arc<SysRoleService>>,
         Extension(endpoint_svc): Extension<Arc<SysEndpointService>>,
-        Extension(mut cache_enforcer): Extension<CasbinAxumLayer>,
         Json(input): Json<SystemManageAssignRoleEndpointsInput>,
     ) -> Result<Res<bool>, AppError> {
         let actor = Actor::from(&user);
         let domain = user.domain().to_string();
-        let enforcer = cache_enforcer.get_enforcer();
 
         let role_ulid = role_svc.lookup_ulid_by_display_id(input.role_id).await?;
         let mut endpoint_ulids: Vec<String> = Vec::with_capacity(input.endpoint_ids.len());
@@ -551,7 +549,7 @@ impl SysSystemManageApi {
         }
 
         service
-            .assign_permission(domain, role_ulid, endpoint_ulids, enforcer, &actor)
+            .assign_permission(domain, role_ulid, endpoint_ulids, &actor)
             .await
             .map(|_| Res::new_data(true))
     }
