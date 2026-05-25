@@ -684,6 +684,13 @@ fn install_pushgateway_recorder() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tokio::main]
 async fn main() {
+    // metrics-exporter-prometheus push-gateway feature → reqwest → rustls 0.23+
+    // requires explicit CryptoProvider install before any TLS operation; otherwise
+    // background push thread panics even on plain-http URLs.
+    if rustls::crypto::ring::default_provider().install_default().is_err() {
+        eprintln!("rustls CryptoProvider already installed (idempotent)");
+    }
+
     tracing_subscriber::fmt().init();
 
     // 050 044-R1: install pushgateway recorder 早於 metrics::counter! 呼叫 (per spec FR-005)。

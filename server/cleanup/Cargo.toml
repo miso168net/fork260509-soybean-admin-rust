@@ -20,3 +20,6 @@ tracing-subscriber = { workspace = true }
 metrics = { workspace = true }
 # 050 044-R1: pushgateway recorder install (per-crate feature flag enable、無新 workspace dep、per spec FR-005)
 metrics-exporter-prometheus = { workspace = true, features = ["push-gateway"] }
+# 050 follow-up: rustls 0.23+ requires explicit CryptoProvider install before any TLS op (reqwest pulled in by
+# push-gateway feature). Per-crate dep with ring feature — no new workspace dep per spec FR-010.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
