@@ -19,7 +19,7 @@ use server_model::admin::{
     facade::sys_menu::{
         self, ActiveModel as SysMenuActiveModel, Column as SysMenuColumn, Model as SysMenuModel,
     },
-    input::{CreateMenuInput, UpdateMenuInput},
+    input::{CreateMenuInput, SystemManageUpdateMenuInput, UpdateMenuInput},
     output::{MenuRoute, MenuTree, RouteMeta},
 };
 use server_utils::TreeBuilder;
@@ -43,6 +43,20 @@ pub trait TMenuService {
     async fn update_menu(
         &self,
         input: UpdateMenuInput,
+        actor: &Actor,
+    ) -> Result<SysMenuModel, AppError>;
+    /// 050 036-R1: selective merge for systemManage transform layer。
+    /// 3 nullable field (query/buttons/fixed_index_in_tab) 用 Option<Option<T>> 區分「未送」與「explicit null」二態:
+    ///   - None         → 未送、保留 before_row 值
+    ///   - Some(None)   → explicit null clear
+    ///   - Some(Some(v))→ set value
+    /// 其他 required field 走原 full-update 行為 (與 update_menu 一致)。
+    async fn update_menu_selective(
+        &self,
+        input: SystemManageUpdateMenuInput,
+        menu_type: server_model::admin::entities::sea_orm_active_enums::MenuType,
+        icon_type: Option<i32>,
+        status: server_model::admin::entities::sea_orm_active_enums::Status,
         actor: &Actor,
     ) -> Result<SysMenuModel, AppError>;
     async fn delete_menu(&self, id: i32, actor: &Actor) -> Result<(), AppError>;
@@ -307,6 +321,92 @@ impl TMenuService for SysMenuService {
         menu.query = Set(input.menu.query);
         menu.buttons = Set(input.menu.buttons);
         menu.fixed_index_in_tab = Set(input.menu.fixed_index_in_tab);
+
+        menu.updated_at = Set(Some(Local::now().naive_local()));
+        menu.updated_by = Set(Some(actor.id.clone()));
+
+        let updated_menu = menu.update(&txn).await.map_err(AppError::from)?;
+
+        audit_log::write_in_txn(
+            &txn,
+            AuditEvent {
+                actor,
+                operation: AuditOperation::Update,
+                entity_type: "sys_menu",
+                entity_id: updated_menu.id.to_string(),
+                payload_before: Some(audit_snapshot(&before)),
+                payload_after: Some(audit_snapshot(&updated_menu)),
+                description: None,
+                source: AuditSource::Internal,
+                request_id: None,
+            },
+        )
+        .await?;
+
+        txn.commit().await.map_err(AppError::from)?;
+        Ok(updated_menu)
+    }
+
+    // 050 036-R1: selective merge handler for systemManage transform layer (per spec FR-003).
+    // 對齊 update_menu 既有 full-update 行為; 唯 3 nullable field 走 Option<Option<T>> 3-state match:
+    // None / Some(None) / Some(Some(v)) → NotSet / Set(None) / Set(Some(v))。
+    async fn update_menu_selective(
+        &self,
+        input: SystemManageUpdateMenuInput,
+        menu_type: server_model::admin::entities::sea_orm_active_enums::MenuType,
+        icon_type: Option<i32>,
+        status: server_model::admin::entities::sea_orm_active_enums::Status,
+        actor: &Actor,
+    ) -> Result<SysMenuModel, AppError> {
+        let db = db_helper::get_db_connection().await?;
+        let txn = db.begin().await.map_err(AppError::from)?;
+
+        let before = sys_menu::find_active()
+            .filter(SysMenuColumn::Id.eq(input.id))
+            .one(&txn)
+            .await
+            .map_err(AppError::from)?
+            .ok_or_else(|| AppError::from(MenuError::MenuNotFound))?;
+
+        self.check_menu_exists_in_txn(&txn, Some(input.id), &input.route_name)
+            .await?;
+
+        let mut menu: SysMenuActiveModel = before.clone().into();
+        // required fields — full-update (handler 端 base-web 表單必填、與 update_menu 同步)
+        menu.menu_type = Set(menu_type);
+        menu.menu_name = Set(input.menu_name);
+        menu.icon_type = Set(icon_type);
+        menu.icon = Set(input.icon);
+        menu.route_name = Set(input.route_name);
+        menu.route_path = Set(input.route_path);
+        menu.component = Set(input.component);
+        menu.status = Set(status);
+        menu.active_menu = Set(input.active_menu);
+        menu.hide_in_menu = Set(input.hide_in_menu);
+        menu.pid = Set(input.parent_id.to_string());
+        menu.sequence = Set(input.order);
+        menu.i18n_key = Set(input.i18n_key);
+        menu.keep_alive = Set(input.keep_alive);
+        menu.constant = Set(input.constant);
+        menu.href = Set(input.href);
+        menu.multi_tab = Set(input.multi_tab);
+
+        // 3 nullable: Option<Option<T>> 3-state match (036-R1 selective merge core)
+        match input.query {
+            None => {}                                       // 未送 → NotSet (保留 before)
+            Some(None) => menu.query = Set(None),            // explicit null clear
+            Some(Some(v)) => menu.query = Set(Some(v)),      // set value
+        }
+        match input.buttons {
+            None => {}
+            Some(None) => menu.buttons = Set(None),
+            Some(Some(v)) => menu.buttons = Set(Some(v)),
+        }
+        match input.fixed_index_in_tab {
+            None => {}
+            Some(None) => menu.fixed_index_in_tab = Set(None),
+            Some(Some(v)) => menu.fixed_index_in_tab = Set(Some(v)),
+        }
 
         menu.updated_at = Set(Some(Local::now().naive_local()));
         menu.updated_by = Set(Some(actor.id.clone()));

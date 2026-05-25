@@ -24,7 +24,7 @@ use server_service::admin::{
     SystemManageMenuTreeNodeOutput, SystemManageRoleOutput, SystemManageUpdateMenuInput,
     SystemManageUpdateRoleInput, SystemManageUpdateUserInput, SystemManageUserOutput,
     TAuthorizationService, TEndpointService, TMenuService, TRoleService, TUserService,
-    UpdateMenuInput, UpdateRoleHomeInput, UpdateRoleInput, UpdateUserInput, UserPageRequest,
+    UpdateRoleHomeInput, UpdateRoleInput, UpdateUserInput, UserPageRequest,
     UserWithoutPassword,
 };
 use server_service::helper::db_helper;
@@ -235,39 +235,22 @@ impl SysSystemManageApi {
     }
 
     /// W-FW2 transform: POST /systemManage/updateMenu (base-web shape → backend domain shape)
+    /// 050 036-R1: 改 selective merge — DTO 3 nullable field (query/buttons/fixed_index_in_tab)
+    /// 用 Option<Option<T>> 區分「未送」與「explicit null」二態; 透過 update_menu_selective
+    /// service method、missing field 保留 before_row 值 (per spec FR-003、對齊 spec 036 FR-004 原 promise)。
     pub async fn update_menu_for_systemmanage(
         Extension(service): Extension<Arc<SysMenuService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageUpdateMenuInput>,
     ) -> Result<Res<SysMenuModel>, AppError> {
         let actor = Actor::from(&user);
-        let update_input = UpdateMenuInput {
-            id: input.id,
-            menu: MenuInput {
-                menu_type: map_menu_type(&input.menu_type)?,
-                menu_name: input.menu_name,
-                icon_type: map_icon_type(input.icon_type.as_deref())?,
-                icon: input.icon,
-                route_name: input.route_name,
-                route_path: input.route_path,
-                component: input.component,
-                path_param: None, // MenuInput 既有欄位，base-web 表單無對應，刻意填 None
-                status: map_status(&input.status)?,
-                active_menu: input.active_menu,
-                hide_in_menu: input.hide_in_menu,
-                pid: input.parent_id.to_string(),
-                sequence: input.order,
-                i18n_key: input.i18n_key,
-                keep_alive: input.keep_alive,
-                constant: input.constant,
-                href: input.href,
-                multi_tab: input.multi_tab,
-                query: input.query,
-                buttons: input.buttons,
-                fixed_index_in_tab: input.fixed_index_in_tab,
-            },
-        };
-        service.update_menu(update_input, &actor).await.map(Res::new_data)
+        let menu_type = map_menu_type(&input.menu_type)?;
+        let icon_type = map_icon_type(input.icon_type.as_deref())?;
+        let status = map_status(&input.status)?;
+        service
+            .update_menu_selective(input, menu_type, icon_type, status, &actor)
+            .await
+            .map(Res::new_data)
     }
 
     /// W-FW2 transform: DELETE /systemManage/deleteMenu (body id)

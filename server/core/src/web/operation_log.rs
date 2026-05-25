@@ -7,7 +7,7 @@ use std::{
 
 use axum::{
     body::{to_bytes, Body, Bytes},
-    extract::{ConnectInfo, Request},
+    extract::{ConnectInfo, MatchedPath, Request},
     response::Response,
     Extension,
 };
@@ -96,6 +96,15 @@ where
                 .map(ToString::to_string)
                 .unwrap_or_else(|| UNKNOWN_REQUEST_ID.to_string());
 
+            // 050 044-R2: axum MatchedPath template path (如 /role/{id}) — 取代既往 raw URI path
+            // 含 numeric ID、避免 prometheus series cardinality 爆炸 (per spec FR-007)。
+            // 取不到 (layer 順序 / unmatched 404 etc.) fallback "unmatched" 為 label value、再降級。
+            // OperationLogLayer 為 apply_layers innermost、routes matched 後執行、應 extract OK。
+            let route_template = extensions
+                .get::<MatchedPath>()
+                .map(|p| p.as_str().to_string())
+                .unwrap_or_else(|| "unmatched".to_string());
+
             if let Ok(bytes) = buffer_body(body).await {
                 let method = parts.method.to_string();
                 let uri = parts.uri.to_string();
@@ -119,14 +128,15 @@ where
                 let duration = (end_time - start_time).num_milliseconds() as i32;
 
                 // 044 W-F13: HTTP request duration histogram（seconds、per prom convention）。
-                // 注意：route 為實際 URI path（含 ID）— 高 cardinality 風險、留 follow-up route 模板化。
+                // 050 044-R2: route label 改用 axum MatchedPath template (如 /role/{id})、
+                // 不再是 raw URI path、避免 prometheus series cardinality 爆炸 (per spec FR-007)。
                 let duration_seconds = (duration as f64) / 1000.0;
                 let response_status = response_parts.status.as_u16().to_string();
                 metrics::histogram!(
                     "http_request_duration_seconds",
                     "service" => "rust-api",
                     "method" => method.clone(),
-                    "route" => uri.clone(),
+                    "route" => route_template.clone(),
                     "status" => response_status.clone()
                 )
                 .record(duration_seconds);

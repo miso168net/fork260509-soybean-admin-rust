@@ -13,8 +13,10 @@ path = "src/main.rs"
 server-model = { path = "../model" }
 server-core = { path = "../core" }
 sea-orm = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 chrono = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 metrics = { workspace = true }
+# 050 044-R1: pushgateway recorder install (per-crate feature flag enable、無新 workspace dep、per spec FR-005)
+metrics-exporter-prometheus = { workspace = true, features = ["push-gateway"] }

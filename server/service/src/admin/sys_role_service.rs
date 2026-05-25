@@ -220,9 +220,15 @@ impl TRoleService for SysRoleService {
 
         let updated_role = role.update(&txn).await.map_err(AppError::from)?;
 
-        // W-FW6 N4: detect code 變動 + 同步 Casbin policy (R-Q3: 只 ptype='p')
+        // 050 037-R1: detect code 變動 + 同步 Casbin policy (ptype='p' + ptype='g' defensive)
+        // ptype='p' = role-permission rule (v0 = role_code); 既有 W-FW6 N4 sync 路徑保留
+        // ptype='g' = user-role grouping rule (v1 = role_code); 過去 sync 漏接、本次補上
+        //   idempotent on empty set (current dev DB 預期 0 g row、per spec assumption)
+        // audit payload MUST 加 g_rules_updated_count 數值欄 (per Clarifications Q2、Constitution Principle II)
+        let mut p_rules_updated_count: u64 = 0;
+        let mut g_rules_updated_count: u64 = 0;
         if before.code != updated_role.code {
-            txn.execute(Statement::from_sql_and_values(
+            let p_result = txn.execute(Statement::from_sql_and_values(
                 DbBackend::Postgres,
                 "UPDATE casbin_rule SET v0 = $1 WHERE ptype = 'p' AND v0 = $2",
                 [
@@ -232,6 +238,32 @@ impl TRoleService for SysRoleService {
             ))
             .await
             .map_err(AppError::from)?;
+            p_rules_updated_count = p_result.rows_affected();
+
+            let g_result = txn.execute(Statement::from_sql_and_values(
+                DbBackend::Postgres,
+                "UPDATE casbin_rule SET v1 = $1 WHERE ptype = 'g' AND v1 = $2",
+                [
+                    sea_orm::Value::String(Some(Box::new(updated_role.code.clone()))),
+                    sea_orm::Value::String(Some(Box::new(before.code.clone()))),
+                ],
+            ))
+            .await
+            .map_err(AppError::from)?;
+            g_rules_updated_count = g_result.rows_affected();
+        }
+
+        // 050 037-R1: payload_after merge p_rules_updated_count + g_rules_updated_count
+        let mut payload_after = audit_snapshot(&updated_role);
+        if let Some(obj) = payload_after.as_object_mut() {
+            obj.insert(
+                "p_rules_updated_count".to_string(),
+                serde_json::Value::from(p_rules_updated_count),
+            );
+            obj.insert(
+                "g_rules_updated_count".to_string(),
+                serde_json::Value::from(g_rules_updated_count),
+            );
         }
 
         audit_log::write_in_txn(
@@ -242,7 +274,7 @@ impl TRoleService for SysRoleService {
                 entity_type: "sys_role",
                 entity_id: updated_role.id.clone(),
                 payload_before: Some(audit_snapshot(&before)),
-                payload_after: Some(audit_snapshot(&updated_role)),
+                payload_after: Some(payload_after),
                 description: None,
                 source: AuditSource::Internal,
                 request_id: None,

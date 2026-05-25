@@ -9,6 +9,7 @@
 //!   CLEANUP_RETENTION_DAYS    (optional, default 90) positive integer
 
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, TransactionTrait};
 use server_core::web::audit::{Actor, AuditEvent, AuditOperation, AuditSource};
 use server_model::admin::{
@@ -643,12 +644,53 @@ async fn sweep_sys_access_key(
 }
 
 // =============================================================================
+// Pushgateway recorder install (050 044-R1)
+// =============================================================================
+
+/// 050 044-R1: 安裝 prometheus pushgateway recorder (per spec FR-005)。
+/// cleanup binary 是 cron-driven 短命 process、不適合 HTTP listener (拉模式);
+/// 改用 pushgateway: cleanup 跑完 push counter 到 pushgateway service、
+/// prometheus scrape pushgateway 拉到 series。
+///
+/// endpoint 預設 `http://pushgateway:9091` (docker network alias)、可由
+/// PUSHGATEWAY_URL env var 覆寫; job=cleanup、instance=$HOSTNAME (default "cleanup-binary")。
+/// interval 10s background push、main() 結尾 sleep 為 flush fallback (per research R-2.3)。
+fn install_pushgateway_recorder() -> Result<(), Box<dyn std::error::Error>> {
+    let endpoint = std::env::var("PUSHGATEWAY_URL")
+        .unwrap_or_else(|_| "http://pushgateway:9091".to_string());
+    let job = "cleanup";
+    let instance = std::env::var("HOSTNAME").unwrap_or_else(|_| "cleanup-binary".to_string());
+    let url = format!(
+        "{}/metrics/job/{}/instance/{}",
+        endpoint.trim_end_matches('/'),
+        job,
+        instance
+    );
+
+    PrometheusBuilder::new()
+        .with_push_gateway(
+            url,
+            std::time::Duration::from_secs(10),
+            None, // username (no auth)
+            None, // password (no auth)
+        )?
+        .install()?;
+    Ok(())
+}
+
+// =============================================================================
 // Entry point
 // =============================================================================
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
+
+    // 050 044-R1: install pushgateway recorder 早於 metrics::counter! 呼叫 (per spec FR-005)。
+    // 失敗只 warn、cleanup 主邏輯不影響 (silent no-op 比 panic 安全)。
+    if let Err(e) = install_pushgateway_recorder() {
+        warn!("pushgateway recorder install failed (metrics will not be pushed): {}", e);
+    }
 
     // --- 1. Retention config ---
     let raw = std::env::var("CLEANUP_RETENTION_DAYS").ok();
@@ -719,6 +761,12 @@ async fn main() {
     } else {
         info!("dry-run total: {} row(s) would be deleted", total_ok);
     }
+
+    // 050 044-R1: on-exit flush fallback — metrics-exporter-prometheus 0.15 push gateway 為
+    // 10s background interval、無 explicit .flush() API; cleanup binary 為短命 cron process、
+    // 結尾 sleep 一個 interval 保最後一批 counter push 完成再 exit (per research R-2.3)。
+    // sleep 12s = interval (10s) + buffer (2s)、err side of caution。
+    tokio::time::sleep(std::time::Duration::from_secs(12)).await;
 
     // --- 7. Exit code ---
     if total_failed > 0 {

@@ -137,12 +137,18 @@ pub struct SystemManageUpdateMenuInput {
     pub hide_in_menu: Option<bool>,
     pub active_menu: Option<String>,
     pub multi_tab: Option<bool>,
-    #[serde(default)]
-    pub query: Option<serde_json::Value>,
-    #[serde(default)]
-    pub buttons: Option<serde_json::Value>,
-    #[serde(default)]
-    pub fixed_index_in_tab: Option<i32>,
+    // 050 036-R1: 3 nullable field 改 Option<Option<T>> double-option (per FR-003)
+    // None         → 未送 (key absent)、保留 before_row 值
+    // Some(None)   → explicit null clear
+    // Some(Some(v))→ set value
+    // serde(default) 必填 (key absent 時 default None);
+    // skip_serializing_if 保 Some(None) 仍可 serialize 為 null（debug 用、wire 端為 deserialize-only）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<Option<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buttons: Option<Option<serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed_index_in_tab: Option<Option<i32>>,
 }
 
 // W-FW2 systemManage: DELETE /systemManage/deleteMenu body-id payload
