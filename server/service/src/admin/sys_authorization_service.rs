@@ -210,8 +210,11 @@ impl TAuthorizationService for SysAuthorizationService {
                 v1: Set(Some(domain_code.clone())),
                 v2: Set(Some(path.clone())),
                 v3: Set(Some(method.clone())),
-                v4: Set(None),
-                v5: Set(None),
+                // schema reality: v4/v5 為 NOT NULL VARCHAR(125)（sea-orm-adapter migration）;
+                // 既有 sea-orm-adapter add_policies 寫 ''（empty string）、本直寫對齊；
+                // entity 宣告 Option<String> 為 forward-compat、DB constraint 仍須 non-null。
+                v4: Set(Some(String::new())),
+                v5: Set(Some(String::new())),
                 ..Default::default()
             })
             .collect();
