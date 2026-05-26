@@ -18,7 +18,7 @@ use server_service::admin::{
     AssignRoleMenusInput, BatchDeleteMenuInput, BatchDeleteRoleInput, CreateRoleInput,
     CreateUserInput, DeleteMenuByBodyInput, DeleteRoleByBodyInput, EndpointTreeNode, Gender,
     MenuInput, MenuType, RoleInput, RolePageRequest, Status, SysAuthorizationService,
-    SysEndpointService, SysMenuModel, SysMenuService, SysRoleModel, SysRoleService, SysUserService,
+    SysEndpointService, SysMenuModel, SysMenuService, SysRoleService, SysUserService,
     SystemManageAddMenuInput, SystemManageAddRoleInput, SystemManageAddUserInput,
     SystemManageAllRoleOutput, SystemManageAssignRoleEndpointsInput, SystemManageMenuOutput,
     SystemManageMenuTreeNodeOutput, SystemManageRoleOutput, SystemManageUpdateMenuInput,
@@ -286,7 +286,7 @@ impl SysSystemManageApi {
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageAddRoleInput>,
-    ) -> Result<Res<SysRoleModel>, AppError> {
+    ) -> Result<Res<SystemManageRoleOutput>, AppError> {
         let actor = Actor::from(&user);
         let create_input = CreateRoleInput {
             // R-Q1 root convention：base-web 角色頁是扁平表格，新角色一律掛 root
@@ -296,7 +296,7 @@ impl SysSystemManageApi {
             status: map_status(&input.status)?,
             description: input.role_desc,
         };
-        service.create_role(create_input, &actor).await.map(Res::new_data)
+        service.create_role(create_input, &actor).await.map(SystemManageRoleOutput::from).map(Res::new_data)
     }
 
     /// W-FW3 transform: POST /systemManage/updateRole (base-web shape → backend domain shape)
@@ -306,7 +306,7 @@ impl SysSystemManageApi {
         Extension(service): Extension<Arc<SysRoleService>>,
         Extension(user): Extension<User>,
         Json(input): Json<SystemManageUpdateRoleInput>,
-    ) -> Result<Res<SysRoleModel>, AppError> {
+    ) -> Result<Res<SystemManageRoleOutput>, AppError> {
         let actor = Actor::from(&user);
         let role_ulid = service.lookup_ulid_by_display_id(input.id).await?;
         let existing = service.get_role(&role_ulid).await?;
@@ -323,6 +323,7 @@ impl SysSystemManageApi {
         service
             .update_role(&role_ulid, update_input, &actor)
             .await
+            .map(SystemManageRoleOutput::from)
             .map(Res::new_data)
     }
 

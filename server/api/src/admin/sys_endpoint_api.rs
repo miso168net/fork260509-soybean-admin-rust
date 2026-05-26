@@ -7,7 +7,7 @@ use axum::{
 use axum_casbin::{casbin::MgmtApi, CasbinAxumLayer};
 use server_core::web::{auth::User, error::AppError, page::PaginatedData, res::Res};
 use server_service::admin::{
-    EndpointPageRequest, EndpointTree, SysEndpointModel, SysEndpointService, TEndpointService,
+    EndpointDetail, EndpointPageRequest, EndpointTree, SysEndpointService, TEndpointService,
 };
 
 pub struct SysEndpointApi;
@@ -16,10 +16,16 @@ impl SysEndpointApi {
     pub async fn get_paginated_endpoints(
         Query(params): Query<EndpointPageRequest>,
         Extension(service): Extension<Arc<SysEndpointService>>,
-    ) -> Result<Res<PaginatedData<SysEndpointModel>>, AppError> {
+    ) -> Result<Res<PaginatedData<EndpointDetail>>, AppError> {
         service
             .find_paginated_endpoints(params)
             .await
+            .map(|page| PaginatedData {
+                current: page.current,
+                size: page.size,
+                total: page.total,
+                records: page.records.into_iter().map(EndpointDetail::from).collect(),
+            })
             .map(Res::new_data)
     }
 
